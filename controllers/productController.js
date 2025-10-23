@@ -227,12 +227,25 @@ const getAllProducts = async (req, res, next) => {
       if (agencyId && productData.AgencyInventory && productData.AgencyInventory.length > 0) {
         const agencyInventory = productData.AgencyInventory.find(inv => inv.agencyId === agencyId);
         if (agencyInventory && agencyInventory.agencyVariants && agencyInventory.agencyVariants.length > 0) {
+          // Filter agency variants for customers (remove 0 stock variants)
+          let filteredAgencyVariants = agencyInventory.agencyVariants;
+          if (req.user && req.user.role === 'customer') {
+            filteredAgencyVariants = agencyInventory.agencyVariants.filter(variant => 
+              variant.stock && variant.stock > 0
+            );
+          }
+          
           // Replace global variants with agency-specific variants
-          productData.variants = agencyInventory.agencyVariants;
+          productData.variants = filteredAgencyVariants;
           productData.agencyPrice = agencyInventory.agencyPrice;
           productData.agencyStock = agencyInventory.stock;
           productData.agencyLowStockThreshold = agencyInventory.lowStockThreshold;
           productData.agencyIsActive = agencyInventory.isActive;
+          
+          // Also update the agencyInventory object to show filtered variants
+          if (req.user && req.user.role === 'customer') {
+            agencyInventory.agencyVariants = filteredAgencyVariants;
+          }
         }
         
         // Filter AgencyInventory to only show the requested agency's data
@@ -252,6 +265,12 @@ const getAllProducts = async (req, res, next) => {
           if (agencyInventory) {
             // Agency status is priority - if agency says active, show it
             if (agencyInventory.isActive === true) {
+              // Filter out variants with 0 stock for customers
+              if (product.variants && Array.isArray(product.variants)) {
+                product.variants = product.variants.filter(variant => 
+                  variant.stock && variant.stock > 0
+                );
+              }
               return true; // Show product regardless of admin status
             } else {
               return false; // Hide product if agency says inactive
@@ -546,23 +565,19 @@ const getProductById = async (req, res, next) => {
     // Note: Products are no longer directly associated with agencies
     // Agency filtering is now handled through AgencyInventory
     
-    // Build include options based on whether inventory data is requested or agencyId is provided
-    const includeOptions = [];
-    
-    if (includeInventory === 'true' || agencyId) {
-      includeOptions.push({
-        model: AgencyInventory,
-        as: 'AgencyInventory',
-        include: [
-          {
-            model: Agency,
-            as: 'Agency',
-            attributes: ['id', 'name', 'email', 'phone', 'city', 'status']
-          }
-        ],
-        required: false
-      });
-    }
+    // Build include options - always include agency inventory to show actual stock
+    const includeOptions = [{
+      model: AgencyInventory,
+      as: 'AgencyInventory',
+      include: [
+        {
+          model: Agency,
+          as: 'Agency',
+          attributes: ['id', 'name', 'email', 'phone', 'city', 'status']
+        }
+      ],
+      required: false
+    }];
     
     const product = await Product.findOne({ 
       where: whereClause,
@@ -580,16 +595,43 @@ const getProductById = async (req, res, next) => {
     if (agencyId && productData.AgencyInventory && productData.AgencyInventory.length > 0) {
       const agencyInventory = productData.AgencyInventory.find(inv => inv.agencyId === agencyId);
       if (agencyInventory && agencyInventory.agencyVariants && agencyInventory.agencyVariants.length > 0) {
+        // Filter agency variants for customers (remove 0 stock variants)
+        let filteredAgencyVariants = agencyInventory.agencyVariants;
+        if (req.user && req.user.role === 'customer') {
+          filteredAgencyVariants = agencyInventory.agencyVariants.filter(variant => 
+            variant.stock && variant.stock > 0
+          );
+        }
+        
         // Replace global variants with agency-specific variants
-        productData.variants = agencyInventory.agencyVariants;
+        productData.variants = filteredAgencyVariants;
         productData.agencyPrice = agencyInventory.agencyPrice;
         productData.agencyStock = agencyInventory.stock;
         productData.agencyLowStockThreshold = agencyInventory.lowStockThreshold;
         productData.agencyIsActive = agencyInventory.isActive;
+        
+        // Also update the agencyInventory object to show filtered variants
+        if (req.user && req.user.role === 'customer') {
+          agencyInventory.agencyVariants = filteredAgencyVariants;
+        }
       }
       
       // Filter AgencyInventory to only show the requested agency's data
       productData.AgencyInventory = productData.AgencyInventory.filter(inv => inv.agencyId === agencyId);
+    } else {
+      // If no agencyId provided, show all agency inventory data with actual stock
+      if (productData.AgencyInventory && productData.AgencyInventory.length > 0) {
+        // Find the first active agency inventory to show actual stock
+        const activeAgencyInventory = productData.AgencyInventory.find(inv => inv.isActive === true);
+        if (activeAgencyInventory && activeAgencyInventory.agencyVariants && activeAgencyInventory.agencyVariants.length > 0) {
+          // Replace global variants with actual agency variants showing real stock
+          productData.variants = activeAgencyInventory.agencyVariants;
+          productData.agencyPrice = activeAgencyInventory.agencyPrice;
+          productData.agencyStock = activeAgencyInventory.stock;
+          productData.agencyLowStockThreshold = activeAgencyInventory.lowStockThreshold;
+          productData.agencyIsActive = activeAgencyInventory.isActive;
+        }
+      }
     }
 
     // Check status filtering for customers
@@ -601,6 +643,12 @@ const getProductById = async (req, res, next) => {
           // Agency status is priority - if agency says inactive, hide it
           if (agencyInventory.isActive !== true) {
             return next(createError(404, 'Product not found or not available'));
+          }
+          // Filter out variants with 0 stock for customers
+          if (productData.variants && Array.isArray(productData.variants)) {
+            productData.variants = productData.variants.filter(variant => 
+              variant.stock && variant.stock > 0
+            );
           }
         } else {
           // If no agency inventory found for this agency, don't show the product
@@ -670,12 +718,25 @@ const getProductsByStatus = async (req, res, next) => {
       if (agencyId && productData.AgencyInventory && productData.AgencyInventory.length > 0) {
         const agencyInventory = productData.AgencyInventory.find(inv => inv.agencyId === agencyId);
         if (agencyInventory && agencyInventory.agencyVariants && agencyInventory.agencyVariants.length > 0) {
+          // Filter agency variants for customers (remove 0 stock variants)
+          let filteredAgencyVariants = agencyInventory.agencyVariants;
+          if (req.user && req.user.role === 'customer') {
+            filteredAgencyVariants = agencyInventory.agencyVariants.filter(variant => 
+              variant.stock && variant.stock > 0
+            );
+          }
+          
           // Replace global variants with agency-specific variants
-          productData.variants = agencyInventory.agencyVariants;
+          productData.variants = filteredAgencyVariants;
           productData.agencyPrice = agencyInventory.agencyPrice;
           productData.agencyStock = agencyInventory.stock;
           productData.agencyLowStockThreshold = agencyInventory.lowStockThreshold;
           productData.agencyIsActive = agencyInventory.isActive;
+          
+          // Also update the agencyInventory object to show filtered variants
+          if (req.user && req.user.role === 'customer') {
+            agencyInventory.agencyVariants = filteredAgencyVariants;
+          }
         }
         
         // Filter AgencyInventory to only show the requested agency's data
@@ -695,6 +756,12 @@ const getProductsByStatus = async (req, res, next) => {
           if (agencyInventory) {
             // Agency status is priority - if agency says active, show it
             if (agencyInventory.isActive === true) {
+              // Filter out variants with 0 stock for customers
+              if (product.variants && Array.isArray(product.variants)) {
+                product.variants = product.variants.filter(variant => 
+                  variant.stock && variant.stock > 0
+                );
+              }
               return true; // Show product regardless of admin status
             } else {
               return false; // Hide product if agency says inactive
