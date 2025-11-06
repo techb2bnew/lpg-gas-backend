@@ -188,7 +188,7 @@ const create = async (req, res, next) => {
                       
                       <!-- Login Button -->
                       <div style="text-align: center; margin: 18px 0;">
-                        <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/agency/login" style="display: inline-block; background: linear-gradient(135deg, #48bb78 0%, #38a169 100%); color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 15px; box-shadow: 0 4px 15px rgba(72, 187, 120, 0.3);color:black;">🚀 Access Your Dashboard</a>
+                        <a href="https://lpg-gas-admin-agency.vercel.app/login" style="display: inline-block; background: linear-gradient(135deg, #48bb78 0%, #38a169 100%); color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 15px; box-shadow: 0 4px 15px rgba(72, 187, 120, 0.3);color:black;">🚀 Access Your Dashboard</a>
                       </div>
                       
                       <!-- Security Section -->
@@ -665,7 +665,7 @@ const update = async (req, res, next) => {
                         
                         <!-- Login Button -->
                         <div style="text-align: center; margin: 18px 0;">
-                          <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/agency/login" style="display: inline-block; background: linear-gradient(135deg, #48bb78 0%, #38a169 100%); color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 15px; box-shadow: 0 4px 15px rgba(72, 187, 120, 0.3);color:black;">🚀 Access Your Dashboard</a>
+                          <a href="https://lpg-gas-admin-agency.vercel.app/login" style="display: inline-block; background: linear-gradient(135deg, #48bb78 0%, #38a169 100%); color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 15px; box-shadow: 0 4px 15px rgba(72, 187, 120, 0.3);color:black;">🚀 Access Your Dashboard</a>
                         </div>
                         
                         <!-- Security Section -->

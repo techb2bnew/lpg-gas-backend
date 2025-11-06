@@ -400,12 +400,12 @@ exports.applyCoupon = async (req, res, next) => {
 
     // Check minimum amount
     if (amount < coupon.minAmount) {
-      return next(createError(400, `Minimum amount required: ₹${coupon.minAmount}`));
+      return next(createError(400, `Minimum amount required: $${coupon.minAmount}`));
     }
 
     // Check maximum amount
     if (coupon.maxAmount && amount > coupon.maxAmount) {
-      return next(createError(400, `Maximum amount allowed: ₹${coupon.maxAmount}`));
+      return next(createError(400, `Maximum amount allowed: $${coupon.maxAmount}`));
     }
 
     // Calculate discount

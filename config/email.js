@@ -23,7 +23,7 @@ const emailTemplates = {
         <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
           <h3>Order Details:</h3>
           <p><strong>Order Number:</strong> ${orderData.orderNumber}</p>
-          <p><strong>Total Amount:</strong> ₹${orderData.totalAmount}</p>
+          <p><strong>Total Amount:</strong> $${orderData.totalAmount}</p>
           <p><strong>Payment Method:</strong> Cash on Delivery</p>
           <p><strong>Status:</strong> ${orderData.status}</p>
         </div>
@@ -84,7 +84,7 @@ const emailTemplates = {
         <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
           <h3>Order Summary:</h3>
           <p><strong>Order Number:</strong> ${orderData.orderNumber}</p>
-          <p><strong>Total Amount:</strong> ₹${orderData.totalAmount}</p>
+          <p><strong>Total Amount:</strong> $${orderData.totalAmount}</p>
           <p><strong>Delivery Date:</strong> ${new Date(orderData.deliveredAt).toLocaleString()}</p>
         </div>
         

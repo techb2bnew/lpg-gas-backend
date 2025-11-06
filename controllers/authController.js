@@ -158,7 +158,7 @@ const login = async (req, res, next) => {
       if (agencyOwner && agencyOwner.mustChangePassword) {
         return res.status(200).json({
           success: true,
-          message: 'Login successful. Please set a new password to continue.'
+          message: 'Please set a new password to continue.'
         });
       }
     }
