@@ -1,4 +1,13 @@
-const { Agency, User, AgencyOwner } = require('../models');
+const { 
+  Agency, 
+  User, 
+  AgencyOwner,
+  DeliveryAgent,
+  AgencyInventory,
+  Order,
+  Coupon,
+  DeliveryCharge
+} = require('../models');
 const { createAgency, updateAgency } = require('../validations/agencyValidation');
 const { createError } = require('../utils/errorHandler');
 const logger = require('../utils/logger');
@@ -900,9 +909,28 @@ const remove = async (req, res, next) => {
     const agency = await Agency.findByPk(req.params.id);
     if (!agency) return next(createError(404, 'Agency not found'));
 
+    // Prevent deletion when orders exist to preserve order history integrity
+    const orderCount = await Order.count({ where: { agencyId: agency.id } });
+    if (orderCount > 0) {
+      return next(createError(400, 'Cannot delete agency with existing orders. Please reassign or archive orders first.'));
+    }
+
     // Use transaction to delete both agency and agency owner
     const { sequelize } = require('../config/database');
     await sequelize.transaction(async (transaction) => {
+      // Break circular reference before deleting owner
+      if (agency.ownerId) {
+        await agency.update({ ownerId: null }, { transaction });
+      }
+
+      // Clean up related records to avoid foreign key constraint issues
+      await Promise.all([
+        DeliveryAgent.destroy({ where: { agencyId: agency.id }, transaction }),
+        AgencyInventory.destroy({ where: { agencyId: agency.id }, transaction }),
+        Coupon.destroy({ where: { agencyId: agency.id }, transaction }),
+        DeliveryCharge.destroy({ where: { agencyId: agency.id }, transaction })
+      ]);
+
       // Delete all agency owners associated with this agency
       await AgencyOwner.destroy({ 
         where: { agencyId: agency.id }, 

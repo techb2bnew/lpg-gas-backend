@@ -54,18 +54,21 @@ const login = async (req, res, next) => {
     }
 
     const { email, password } = req.body;
+    const trimmedEmail = email.trim();
+    const emailWhereClause = { [Op.iLike]: trimmedEmail };
 
     console.log('🔍 LOGIN DEBUG:', { email, passwordLength: password.length });
 
     // First try to find in User table (Admin, Customer, Agent)
     let user = await User.findOne({
-      where: { email }
+      where: { email: emailWhereClause }
     });
 
     console.log('👤 User found in User table:', !!user);
 
     let userType = 'user';
     let userData = null;
+    let agencyOwnerRecord = null;
 
     if (user) {
       console.log('🔐 User found - checking password...');
@@ -89,8 +92,9 @@ const login = async (req, res, next) => {
       console.log('👤 User not found in User table, checking AgencyOwner...');
       // If not found in User table, try AgencyOwner table
       const agencyOwner = await AgencyOwner.findOne({
-        where: { email }
+        where: { email: emailWhereClause }
       });
+      agencyOwnerRecord = agencyOwner;
 
       console.log('🏢 AgencyOwner found:', !!agencyOwner);
       if (agencyOwner) {
@@ -154,8 +158,8 @@ const login = async (req, res, next) => {
     
     // For agency_owner: if mustChangePassword is true, do not return token
     if (userType === 'agency_owner') {
-      const agencyOwner = await AgencyOwner.findOne({ where: { email } });
-      if (agencyOwner && agencyOwner.mustChangePassword) {
+      const ownerForPasswordCheck = agencyOwnerRecord || await AgencyOwner.findOne({ where: { email: emailWhereClause } });
+      if (ownerForPasswordCheck && ownerForPasswordCheck.mustChangePassword) {
         return res.status(200).json({
           success: true,
           message: 'Please set a new password to continue.'
@@ -951,7 +955,7 @@ const resetPassword = async (req, res, next) => {
 
       if (otpRecord) {
         userType = 'agency_owner';
-        const agencyOwner = await AgencyOwner.findOne({ where: { email } });
+        const agencyOwner = await AgencyOwner.findOne({ where: { email: emailWhereClause } });
         if (!agencyOwner) {
           return next(createError(404, 'Agency owner account not found'));
         }
