@@ -6,6 +6,8 @@ const uploadDeliveryProof = require('../middleware/deliveryProofUpload');
 
 // Customer routes (no authentication required for checkout)
 router.post('/checkout', orderController.createOrderHandler);
+router.post('/payment', orderController.orderpesapalPayment);
+router.get('/payment/status/:orderId', orderController.getPesapalPaymentStatus);
 
 // Admin/Agent routes (require authentication)
 router.use(authenticate);

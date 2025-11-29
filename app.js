@@ -91,6 +91,10 @@ app.get('/test', (req, res) => {
   });
 });
 
+// Pesapal callback route (must be at root level, called by Pesapal)
+const orderController = require('./controllers/orderController');
+app.get('/pesapal/callback', orderController.pesapalCallbackHandler);
+
 // API routes
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/delivery-agents', require('./routes/deliveryAgent'));

@@ -2,11 +2,11 @@ const { Order, DeliveryAgent, Product, Tax, PlatformCharge, Coupon, DeliveryChar
 const { createOrder, updateOrderStatus, assignAgent, sendOTP, verifyOTP, cancelOrder, returnOrder, markPaymentReceived } = require('../validations/orderValidation');
 const { createError } = require('../utils/errorHandler');
 const { sendEmail } = require('../config/email');
-const { 
-  generateOrderNumber, 
-  generateOTP, 
-  calculateOrderTotals, 
-  validateOTP, 
+const {
+  generateOrderNumber,
+  generateOTP,
+  calculateOrderTotals,
+  validateOTP,
   formatOrderResponse,
   restoreStockToAgency,
   NOTIFICATION_TYPES,
@@ -14,6 +14,7 @@ const {
 } = require('../utils/orderUtils');
 const logger = require('../utils/logger');
 const { Op, sequelize } = require('sequelize');
+const axios = require("axios");
 
 // Get socket service instance
 const getSocketService = () => {
@@ -32,13 +33,13 @@ const createOrderHandler = async (req, res, next) => {
     // Get tax configuration first
     const taxConfig = await Tax.findOne({ where: { isActive: true } });
     const platformChargeConfig = await PlatformCharge.findOne({ where: { isActive: true } });
-    
+
     let taxPercentage = 0;
     let fixedTaxAmount = 0;
     let taxType = 'none';
     let taxValue = 0;
     let platformChargeAmount = 0;
-    
+
     if (taxConfig) {
       if (taxConfig.percentage !== null && taxConfig.percentage > 0) {
         taxPercentage = parseFloat(taxConfig.percentage);
@@ -50,7 +51,7 @@ const createOrderHandler = async (req, res, next) => {
         taxValue = fixedTaxAmount;
       }
     }
-    
+
     // Get platform charge
     if (platformChargeConfig && platformChargeConfig.amount > 0) {
       platformChargeAmount = parseFloat(platformChargeConfig.amount);
@@ -59,7 +60,7 @@ const createOrderHandler = async (req, res, next) => {
     // Verify each item's price from database and calculate correct amounts
     const AgencyInventory = require('../models/AgencyInventory');
     const agencyId = value.agencyId;
-    
+
     let calculatedSubtotal = 0;
     const validatedItems = [];
 
@@ -72,10 +73,10 @@ const createOrderHandler = async (req, res, next) => {
 
       // Get inventory for this product in the agency
       const inventory = await AgencyInventory.findOne({
-        where: { 
-          productId: item.productId, 
+        where: {
+          productId: item.productId,
           agencyId: agencyId,
-          isActive: true 
+          isActive: true
         }
       });
 
@@ -107,7 +108,7 @@ const createOrderHandler = async (req, res, next) => {
 
       // Calculate product amount (without tax)
       const productAmount = actualPrice * item.quantity;
-      
+
       // Calculate tax for this item
       let itemTaxAmount = 0;
       if (taxType === 'percentage') {
@@ -155,7 +156,7 @@ const createOrderHandler = async (req, res, next) => {
     // Apply coupon if provided (coupon applies on subtotal only)
     let couponCode = null;
     let couponDiscount = 0;
-    
+
     if (value.couponCode && value.couponCode.trim() !== '') {
       // Find and validate coupon
       const coupon = await Coupon.findOne({
@@ -202,39 +203,39 @@ const createOrderHandler = async (req, res, next) => {
     // Calculate delivery charge for home_delivery mode
     let deliveryChargeAmount = 0;
     let deliveryDistance = null;
-    
+
     if (value.deliveryMode === 'home_delivery') {
       try {
         // Get customer user to access addresses
         const customer = await User.findOne({
           where: { email: value.customerEmail }
         });
-        
+
         if (customer && customer.addresses && Array.isArray(customer.addresses) && customer.addresses.length > 0) {
           // Use customer's first address or find matching address
           const customerAddressObj = customer.addresses[0];
-          
+
           // Get delivery charge configuration for agency
           const deliveryChargeConfig = await DeliveryCharge.findOne({
-            where: { 
+            where: {
               agencyId: agencyId,
               status: 'active'
             }
           });
-          
+
           if (deliveryChargeConfig) {
             // Get agency details - already fetched below, so we'll move agency fetch here
             const Agency = require('../models/Agency');
             const agency = await Agency.findByPk(agencyId);
-            
+
             if (agency) {
               // Calculate distance using Google Maps API
               const axios = require('axios');
               const customerFullAddress = `${customerAddressObj.address}, ${customerAddressObj.city}, ${customerAddressObj.pincode}`;
               const agencyFullAddress = `${agency.address}, ${agency.city}, ${agency.pincode}`;
-              
+
               const apiKey = process.env.GOOGLE_MAPS_API_KEY || 'AIzaSyBXNyT9zcGdvhAUCUEYTm6e_qPw26AOPgI';
-              
+
               const response = await axios.get('https://maps.googleapis.com/maps/api/distancematrix/json', {
                 params: {
                   origins: agencyFullAddress,
@@ -244,14 +245,14 @@ const createOrderHandler = async (req, res, next) => {
                   units: 'metric'
                 }
               });
-              
+
               if (response.data.status === 'OK' && response.data.rows[0].elements[0].status === 'OK') {
                 const distanceInMeters = response.data.rows[0].elements[0].distance.value;
                 const distanceInKm = distanceInMeters / 1000;
                 deliveryDistance = parseFloat(distanceInKm.toFixed(2));
-                
+
                 const deliveryRadius = parseFloat(deliveryChargeConfig.deliveryRadius);
-                
+
                 // Check if within delivery radius
                 if (distanceInKm <= deliveryRadius) {
                   // Calculate delivery charge based on type
@@ -277,22 +278,22 @@ const createOrderHandler = async (req, res, next) => {
     // Distribute platform charge proportionally across items
     validatedItems.forEach(item => {
       item.taxValue = taxValue;
-      
+
       // Calculate proportional platform charge for this item
       const proportion = item.productAmount / calculatedSubtotal;
       const itemPlatformCharge = platformChargeAmount * proportion;
       item.platformCharge = parseFloat(itemPlatformCharge.toFixed(2));
-      
+
       // Update item total to include platform charge
       item.total = parseFloat((item.productAmount + item.taxAmount + item.platformCharge).toFixed(2));
     });
 
     // Calculate final total amount (subtotal + tax + platformCharge + deliveryCharge - couponDiscount)
     const totalAmount = calculatedSubtotal + totalTaxAmount + platformChargeAmount + deliveryChargeAmount - couponDiscount;
-    
+
     // Generate order number
     const orderNumber = generateOrderNumber();
-    
+
     // Verify the agency exists and is active
     const Agency = require('../models/Agency');
     const agency = await Agency.findByPk(agencyId);
@@ -302,28 +303,28 @@ const createOrderHandler = async (req, res, next) => {
     if (agency.status !== 'active') {
       return next(createError(400, `Agency ${agency.name} is not active`));
     }
-      
+
     // Verify stock availability for validated items
     for (const item of validatedItems) {
       const inventory = await AgencyInventory.findOne({
-        where: { 
-          productId: item.productId, 
+        where: {
+          productId: item.productId,
           agencyId: agencyId,
-          isActive: true 
+          isActive: true
         }
       });
-      
+
       // Check stock availability for variant
       let availableStock = 0;
       let stockMessage = `variant ${item.variantLabel} of ${item.productName}`;
-      
+
       if (inventory && inventory.agencyVariants && Array.isArray(inventory.agencyVariants)) {
         const variant = inventory.agencyVariants.find(v => v.label === item.variantLabel);
         if (variant) {
           availableStock = variant.stock || 0;
         }
       }
-      
+
       if (availableStock < item.quantity) {
         return next(createError(400, `Insufficient stock for ${stockMessage}. Available: ${availableStock}, Requested: ${item.quantity}`));
       }
@@ -362,7 +363,7 @@ const createOrderHandler = async (req, res, next) => {
           agencyId: agencyId
         }
       });
-      
+
       if (inventory) {
         // If item has variant information, update variant stock
         if (item.variantLabel && inventory.agencyVariants && Array.isArray(inventory.agencyVariants)) {
@@ -375,7 +376,7 @@ const createOrderHandler = async (req, res, next) => {
             }
             return variant;
           });
-          
+
           await inventory.update({
             agencyVariants: updatedVariants
           });
@@ -425,7 +426,7 @@ const getAllOrders = async (req, res, next) => {
     const offset = (page - 1) * limit;
     const userRole = req.user.role;
     const userEmail = req.user.email;
-    
+
     // Debug logging
     console.log('🔍 Order Filtering Debug:', {
       userRole,
@@ -449,7 +450,7 @@ const getAllOrders = async (req, res, next) => {
           }
         ]
       });
-      
+
       if (!order) {
         return next(createError(404, 'Order not found'));
       }
@@ -478,11 +479,11 @@ const getAllOrders = async (req, res, next) => {
 
     // Build where clause based on user role
     const whereClause = {};
-    
+
     if (status) {
       whereClause.status = status;
     }
-    
+
     if (search) {
       whereClause[Op.or] = [
         { orderNumber: { [Op.iLike]: `%${search}%` } },
@@ -517,7 +518,7 @@ const getAllOrders = async (req, res, next) => {
         return next(createError(400, 'Agent profile not properly linked. Please contact admin.'));
       }
       whereClause.assignedAgentId = req.user.deliveryAgentId;
-      
+
       // If no specific status is requested, show active orders (assigned + out_for_delivery)
       // If specific status is requested, respect that filter
       if (!status) {
@@ -537,7 +538,7 @@ const getAllOrders = async (req, res, next) => {
       console.log('👑 Admin - no filtering applied');
     }
     // Admin can see all orders (no additional filtering)
-    
+
     console.log('🔍 Final whereClause:', JSON.stringify(whereClause, null, 2));
 
     // Filter by agent if provided (admin only)
@@ -574,7 +575,7 @@ const getAllOrders = async (req, res, next) => {
         'taxType', 'taxValue', 'taxAmount', 'platformCharge', 'deliveryCharge',
         'couponCode', 'couponDiscount', 'totalAmount', 'paymentMethod',
         'paymentStatus', 'paymentReceived', 'agencyId', 'assignedAgentId',
-        'createdAt', 'updatedAt', 'confirmedAt', 'assignedAt', 
+        'createdAt', 'updatedAt', 'confirmedAt', 'assignedAt',
         'outForDeliveryAt', 'deliveredAt', 'cancelledAt'
       ],
       limit: Math.min(parseInt(limit), 50), // Reduced from 100 to 50
@@ -598,8 +599,8 @@ const getAllOrders = async (req, res, next) => {
           itemsPerPage: parseInt(limit)
         },
         userRole,
-        filteredBy: userRole === 'customer' ? 'customer_email' : 
-                    userRole === 'agent' ? 'assigned_agent_id' : 'all_orders'
+        filteredBy: userRole === 'customer' ? 'customer_email' :
+          userRole === 'agent' ? 'assigned_agent_id' : 'all_orders'
       }
     });
   } catch (error) {
@@ -608,14 +609,14 @@ const getAllOrders = async (req, res, next) => {
       logger.error('Database shared memory error in getAllOrders:', error);
       return next(createError(503, 'Service temporarily unavailable. Please try again in a moment.'));
     }
-    
-    if (error.name === 'SequelizeConnectionError' || 
-        error.name === 'SequelizeConnectionRefusedError' ||
-        error.name === 'SequelizeConnectionTimedOutError') {
+
+    if (error.name === 'SequelizeConnectionError' ||
+      error.name === 'SequelizeConnectionRefusedError' ||
+      error.name === 'SequelizeConnectionTimedOutError') {
       logger.error('Database connection error in getAllOrders:', error);
       return next(createError(503, 'Database connection error. Please try again.'));
     }
-    
+
     logger.error('Error in getAllOrders:', error);
     next(error);
   }
@@ -639,7 +640,7 @@ const updateOrderStatusHandler = async (req, res, next) => {
 
     // Update order with timestamp
     const updateData = { status: value.status };
-    
+
     if (value.status === 'confirmed' && order.status === 'pending') {
       updateData.confirmedAt = new Date();
     } else if (value.status === 'out_for_delivery' && order.status === 'assigned') {
@@ -652,7 +653,7 @@ const updateOrderStatusHandler = async (req, res, next) => {
       }
     } else if (value.status === 'cancelled' && order.status !== 'delivered') {
       updateData.cancelledAt = new Date();
-      
+
       // Track who cancelled the order
       let cancelledBy = 'system';
       let cancelledById = null;
@@ -677,7 +678,7 @@ const updateOrderStatusHandler = async (req, res, next) => {
             break;
         }
       }
-      
+
       updateData.cancelledBy = cancelledBy;
       updateData.cancelledById = cancelledById;
       updateData.cancelledByName = cancelledByName;
@@ -691,7 +692,7 @@ const updateOrderStatusHandler = async (req, res, next) => {
     // Restore stock when order is cancelled via status update
     if (value.status === 'cancelled') {
       await restoreStockToAgency(order);
-      
+
       const cancelledByName = updateData.cancelledByName || 'System';
       const cancelledBy = updateData.cancelledBy || 'system';
       logger.info(`Order cancelled: ${order.orderNumber} by ${cancelledByName} (${cancelledBy}) - Stock restored to agency inventory`);
@@ -786,7 +787,7 @@ const assignAgentHandler = async (req, res, next) => {
     res.status(200).json({
       success: true,
       message: 'Order assigned to agent successfully',
-      data: { 
+      data: {
         order: formatOrderResponse(order),
         agent: {
           id: agent.id,
@@ -1067,7 +1068,7 @@ const getOrdersByStatus = async (req, res, next) => {
 
     // Build where clause based on user role
     const whereClause = { status };
-    
+
     if (userRole === 'customer') {
       // Customer can only see their own orders
       whereClause.customerEmail = userEmail;
@@ -1103,8 +1104,8 @@ const getOrdersByStatus = async (req, res, next) => {
       data: {
         orders: orders.map(order => formatOrderResponse(order, true)),
         userRole,
-        filteredBy: userRole === 'customer' ? 'customer_email' : 
-                    userRole === 'agent' ? 'assigned_agent_id' : 'all_orders'
+        filteredBy: userRole === 'customer' ? 'customer_email' :
+          userRole === 'agent' ? 'assigned_agent_id' : 'all_orders'
       }
     });
   } catch (error) {
@@ -1172,7 +1173,7 @@ const getAgentDeliveryHistory = async (req, res, next) => {
     const { page = 1, limit = 10, status, startDate, endDate, customerName } = req.query;
     const offset = (page - 1) * limit;
     const userRole = req.user.role;
-    
+
     // Only agents can access this endpoint
     if (userRole !== 'agent') {
       return next(createError(403, 'Access denied. Only agents can view delivery history.'));
@@ -1293,7 +1294,7 @@ const getAgentDeliveryStats = async (req, res, next) => {
   try {
     const { period = 'month' } = req.query; // day, week, month, year
     const userRole = req.user.role;
-    
+
     // Only agents can access this endpoint
     if (userRole !== 'agent') {
       return next(createError(403, 'Access denied. Only agents can view delivery statistics.'));
@@ -1307,7 +1308,7 @@ const getAgentDeliveryStats = async (req, res, next) => {
     // Calculate date range based on period
     const now = new Date();
     let startDate;
-    
+
     switch (period) {
       case 'day':
         startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -1422,10 +1423,10 @@ const getAgentDeliveryStats = async (req, res, next) => {
     deliveredOrders.forEach(order => {
       const date = order.deliveredAt.toISOString().split('T')[0];
       if (!dailyStats[date]) {
-        dailyStats[date] = { 
-          count: 0, 
-          earnings: 0, 
-          orders: [] 
+        dailyStats[date] = {
+          count: 0,
+          earnings: 0,
+          orders: []
         };
       }
       dailyStats[date].count += 1;
@@ -1454,12 +1455,12 @@ const getAgentDeliveryStats = async (req, res, next) => {
           cancelledThisPeriod: cancelledThisPeriod,
           earningsThisPeriod: earningsThisPeriod || 0,
           totalOrdersThisPeriod: deliveredThisPeriod + cancelledThisPeriod,
-          
+
           // Current active orders
           assignedOrders: assignedOrders,
           outForDeliveryOrders: outForDeliveryOrders,
           totalActiveOrders: assignedOrders + outForDeliveryOrders,
-          
+
           // All-time stats
           totalDeliveredOrders: totalDeliveredOrders
         },
@@ -1655,7 +1656,7 @@ const markPaymentReceivedHandler = async (req, res, next) => {
 
     // Check permissions
     const userRole = req.user.role;
-    
+
     // Only admin and agency owners can mark payment received
     if (userRole !== 'admin' && userRole !== 'agency_owner') {
       return next(createError(403, 'Access denied. Only admin and agency owners can mark payment received.'));
@@ -1676,7 +1677,7 @@ const markPaymentReceivedHandler = async (req, res, next) => {
     if (order.status === 'cancelled') {
       return next(createError(400, 'Cannot mark payment for cancelled orders.'));
     }
-    
+
     if (order.status === 'returned') {
       return next(createError(400, 'Cannot mark payment for returned orders.'));
     }
@@ -1740,6 +1741,453 @@ const markPaymentReceivedHandler = async (req, res, next) => {
   }
 };
 
+
+
+const orderpesapalPayment = async (req, res) => {
+  try {
+    // Validate orderId
+    if (!req.body.orderId) {
+      return res.status(400).json({
+        success: false,
+        message: "Order ID is required"
+      });
+    }
+
+    //  Fetch order from database
+    const order = await Order.findByPk(req.body.orderId);
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: "Order not found"
+      });
+    }
+
+    //  Fetch user from database using order email
+    let user = null;
+    if (order.customerEmail) {
+      user = await User.findOne({ where: { email: order.customerEmail } });
+    }
+
+    //  Generate token
+    console.log("Pesapal Payment Token Generating...");
+    const authRes = await axios.post(
+      "https://pay.pesapal.com/v3/api/Auth/RequestToken",
+      {
+        consumer_key: process.env.PESAPAL_CONSUMER_KEY,
+        consumer_secret: process.env.PESAPAL_CONSUMER_SECRET
+      }
+    );
+
+    const token = authRes.data.token;
+    console.log("Pesapal Token:", token);
+
+    //  Prepare dynamic values from environment or defaults
+    const currency = process.env.PESAPAL_CURRENCY || "KES";
+    const callbackUrl = process.env.PESAPAL_CALLBACK_URL || (process.env.BASE_URL ? `${process.env.BASE_URL}/pesapal/callback` : "https://7d1510928719.ngrok-free.app/pesapal/callback");
+    const countryCode = process.env.PESAPAL_COUNTRY_CODE || "KE";
+
+    //  Prepare order ID - use order.id or orderNumber
+    const pesapalOrderId = order.id || order.orderNumber || Date.now().toString();
+
+    // Get amount from order
+    const amount = parseFloat(order.totalAmount);
+    if (!amount || amount <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid order amount"
+      });
+    }
+
+    //  Prepare description from order items
+    let description = `Payment for Order #${order.orderNumber}`;
+    if (order.items && Array.isArray(order.items) && order.items.length > 0) {
+      const itemNames = order.items.map(item => item.productName || item.variantLabel).filter(Boolean).join(", ");
+      if (itemNames) {
+        description = `Payment for ${itemNames} - Order #${order.orderNumber}`;
+      }
+    }
+
+    //  Prepare billing address from order and user data
+    let billingAddress = {
+      email_address: order.customerEmail || req.body.email || "customer@mail.com",
+      phone_number: order.customerPhone || user?.phone || req.body.phone || "0000000000",
+      country_code: countryCode,
+      first_name: "",
+      middle_name: "",
+      last_name: "",
+      line_1: "",
+      line_2: "",
+      city: "",
+      state: "",
+      postal_code: "",
+      zip_code: ""
+    };
+
+    // Extract name from order customerName or user name
+    if (order.customerName) {
+      const nameParts = order.customerName.trim().split(" ");
+      billingAddress.first_name = nameParts[0] || "";
+      billingAddress.last_name = nameParts.length > 1 ? nameParts.slice(1).join(" ") : "";
+    } else if (user?.name) {
+      const nameParts = user.name.trim().split(" ");
+      billingAddress.first_name = nameParts[0] || "";
+      billingAddress.last_name = nameParts.length > 1 ? nameParts.slice(1).join(" ") : "";
+    } else {
+      billingAddress.first_name = req.body.firstName || "";
+      billingAddress.last_name = req.body.lastName || "";
+    }
+
+    // Get address from order or user addresses
+    if (order.customerAddress) {
+      billingAddress.line_1 = order.customerAddress;
+    } else if (user?.addresses && Array.isArray(user.addresses) && user.addresses.length > 0) {
+      const primaryAddress = user.addresses[0];
+      billingAddress.line_1 = primaryAddress.address || "";
+      billingAddress.city = primaryAddress.city || "";
+      billingAddress.postal_code = primaryAddress.pincode || primaryAddress.postal_code || "";
+      billingAddress.state = primaryAddress.state || "";
+    } else if (user?.address) {
+      billingAddress.line_1 = user.address;
+    }
+
+    // Override with request body values if provided (optional overrides)
+    if (req.body.city) billingAddress.city = req.body.city;
+    if (req.body.pin_code || req.body.postal_code) {
+      billingAddress.postal_code = req.body.pin_code || req.body.postal_code;
+    }
+    if (req.body.state) billingAddress.state = req.body.state;
+    if (req.body.line_1 || req.body.address) {
+      billingAddress.line_1 = req.body.line_1 || req.body.address;
+    }
+    if (req.body.line_2) billingAddress.line_2 = req.body.line_2;
+    if (req.body.country_code) billingAddress.country_code = req.body.country_code;
+    if (req.body.firstName) billingAddress.first_name = req.body.firstName;
+    if (req.body.lastName) billingAddress.last_name = req.body.lastName;
+
+    // Prepare order payload
+    const orderData = {
+      id: pesapalOrderId,
+      currency: currency,
+      amount: amount,
+      description: description,
+      callback_url: callbackUrl,
+      notification_id: process.env.PESAPAL_NOTIFICATION_ID,
+      billing_address: billingAddress
+    };
+
+
+    // Create Pesapal order
+    const orderRes = await axios.post(
+      "https://pay.pesapal.com/v3/api/Transactions/SubmitOrderRequest",
+      orderData,
+      {
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json"
+        }
+      }
+    );
+
+    console.log("Pesapal Order Created:", orderRes.data);
+
+    // Store Pesapal tracking ID in order adminNotes for later reference
+    const trackingIdNote = `\n\n[Pesapal Payment Initiated ${new Date().toISOString()}] Pesapal Tracking ID: ${orderRes.data.order_tracking_id}`;
+    const existingNotes = order.adminNotes || "";
+    await order.update({
+      adminNotes: existingNotes + trackingIdNote
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Pesapal Order Created Successfully",
+      order_tracking_id: orderRes.data.order_tracking_id,
+      redirect_url: orderRes.data.redirect_url,
+      data: orderRes.data
+    });
+
+  } catch (error) {
+    console.error("Pesapal Error:", error.response?.data || error.message);
+    return res.status(400).json({
+      success: false,
+      message: "Pesapal Order Creation Failed",
+      error: error.response?.data || error.message
+    });
+  }
+};
+
+// Pesapal Payment Callback Handler - Success/Fail status handle karta hai
+const pesapalCallbackHandler = async (req, res) => {
+  try {
+    const { OrderTrackingId, OrderMerchantReference } = req.query;
+
+    console.log("Pesapal Callback Received:", { OrderTrackingId, OrderMerchantReference });
+
+    if (!OrderTrackingId) {
+      return res.status(400).json({
+        success: false,
+        message: "OrderTrackingId is required"
+      });
+    }
+
+    // 1️⃣ Generate token for Pesapal API
+    const authRes = await axios.post(
+      "https://pay.pesapal.com/v3/api/Auth/RequestToken",
+      {
+        consumer_key: process.env.PESAPAL_CONSUMER_KEY,
+        consumer_secret: process.env.PESAPAL_CONSUMER_SECRET
+      }
+    );
+
+    const token = authRes.data.token;
+
+    // 2️⃣ Get payment status from Pesapal API
+    const paymentStatusRes = await axios.get(
+      `https://pay.pesapal.com/v3/api/Transactions/GetTransactionStatus?orderTrackingId=${OrderTrackingId}`,
+      {
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json"
+        }
+      }
+    );
+
+    const paymentData = paymentStatusRes.data;
+    console.log("Pesapal Payment Status:", paymentData);
+
+    // 3️⃣ Find order by OrderMerchantReference (order.id or orderNumber) or by tracking ID
+    let order = null;
+    
+    if (OrderMerchantReference) {
+      // Try to find by order ID first
+      order = await Order.findByPk(OrderMerchantReference);
+      
+      // If not found, try by orderNumber
+      if (!order) {
+        order = await Order.findOne({ where: { orderNumber: OrderMerchantReference } });
+      }
+    }
+
+    // If still not found, try to find by tracking ID in adminNotes
+    if (!order) {
+      // Search in adminNotes for tracking ID
+      const orders = await Order.findAll({
+        where: {
+          adminNotes: {
+            [Op.like]: `%Pesapal Tracking ID: ${OrderTrackingId}%`
+          }
+        }
+      });
+      if (orders.length > 0) {
+        order = orders[0];
+      }
+    }
+
+    if (!order) {
+      console.error("Order not found for tracking ID:", OrderTrackingId);
+      return res.status(404).json({
+        success: false,
+        message: "Order not found",
+        orderTrackingId: OrderTrackingId
+      });
+    }
+
+    // 4️⃣ Update order payment status based on Pesapal response
+    const paymentStatus = paymentData.payment_status_description || paymentData.status || paymentData.payment_status;
+    const updateData = {};
+
+    if (paymentStatus === "COMPLETED" || paymentStatus === "COMPLETED") {
+      // Payment successful
+      updateData.paymentStatus = "paid";
+      updateData.paymentReceived = true;
+      
+      // If order is pending, auto-confirm it
+      if (order.status === "pending") {
+        updateData.status = "confirmed";
+        updateData.confirmedAt = new Date();
+      }
+
+      logger.info(`Payment successful for Order #${order.orderNumber} - Tracking ID: ${OrderTrackingId}`);
+
+      // Send email notification
+      await sendEmail(order.customerEmail, 'paymentSuccess', formatOrderResponse(order));
+
+      // Emit socket notification
+      const socketService = getSocketService();
+      if (socketService) {
+        socketService.emitOrderStatusUpdated({
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          status: updateData.status || order.status,
+          paymentStatus: "paid",
+          customerEmail: order.customerEmail,
+          agencyId: order.agencyId
+        });
+      }
+
+    } else if (paymentStatus === "FAILED" || paymentStatus === "CANCELLED" || paymentStatus === "REJECTED") {
+      // Payment failed
+      updateData.paymentStatus = "failed";
+      updateData.paymentReceived = false;
+
+      logger.warn(`Payment failed for Order #${order.orderNumber} - Tracking ID: ${OrderTrackingId}, Status: ${paymentStatus}`);
+
+      // Send email notification
+      await sendEmail(order.customerEmail, 'paymentFailed', formatOrderResponse(order));
+
+      // Emit socket notification
+      const socketService = getSocketService();
+      if (socketService) {
+        socketService.emitOrderStatusUpdated({
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          status: order.status,
+          paymentStatus: "failed",
+          customerEmail: order.customerEmail,
+          agencyId: order.agencyId
+        });
+      }
+
+    } else if (paymentStatus === "PENDING" || paymentStatus === "INPROGRESS") {
+      // Payment still pending
+      updateData.paymentStatus = "pending";
+      updateData.paymentReceived = false;
+
+      logger.info(`Payment pending for Order #${order.orderNumber} - Tracking ID: ${OrderTrackingId}`);
+    }
+
+    // Store Pesapal tracking ID and status in adminNotes
+    const paymentInfo = {
+      pesapalTrackingId: OrderTrackingId,
+      pesapalStatus: paymentStatus,
+      paymentUpdatedAt: new Date().toISOString()
+    };
+    
+    const existingNotes = order.adminNotes || "";
+    const paymentNote = `\n\n[Payment Update ${new Date().toISOString()}] Pesapal Tracking ID: ${OrderTrackingId}, Status: ${paymentStatus}`;
+    updateData.adminNotes = existingNotes + paymentNote;
+
+    // Update order
+    await order.update(updateData);
+
+    // 5️⃣ Return success response to Pesapal
+    return res.status(200).json({
+      success: true,
+      message: "Payment status updated successfully",
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      paymentStatus: order.paymentStatus,
+      pesapalStatus: paymentStatus
+    });
+
+  } catch (error) {
+    console.error("Pesapal Callback Error:", error.response?.data || error.message);
+    logger.error("Pesapal Callback Error:", error);
+    
+    // Still return 200 to Pesapal so they don't retry
+    return res.status(200).json({
+      success: false,
+      message: "Error processing callback",
+      error: error.message
+    });
+  }
+};
+
+// Get Payment Status - Manually check payment status
+const getPesapalPaymentStatus = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+
+    if (!orderId) {
+      return res.status(400).json({
+        success: false,
+        message: "Order ID is required"
+      });
+    }
+
+    // Find order
+    const order = await Order.findByPk(orderId);
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: "Order not found"
+      });
+    }
+
+    // Check if order has Pesapal tracking ID in adminNotes
+    // Extract from adminNotes (format: "Pesapal Tracking ID: xxxxx")
+    const adminNotes = order.adminNotes || "";
+    const trackingIdMatch = adminNotes.match(/Pesapal Tracking ID:\s*([^\s,]+)/);
+    const pesapalTrackingId = trackingIdMatch ? trackingIdMatch[1] : null;
+    
+    if (!pesapalTrackingId) {
+      return res.status(400).json({
+        success: false,
+        message: "No Pesapal tracking ID found for this order. Payment may not have been initiated via Pesapal."
+      });
+    }
+
+    // Generate token
+    const authRes = await axios.post(
+      "https://pay.pesapal.com/v3/api/Auth/RequestToken",
+      {
+        consumer_key: process.env.PESAPAL_CONSUMER_KEY,
+        consumer_secret: process.env.PESAPAL_CONSUMER_SECRET
+      }
+    );
+
+    const token = authRes.data.token;
+
+    // Get payment status from Pesapal
+    const paymentStatusRes = await axios.get(
+      `https://pay.pesapal.com/v3/api/Transactions/GetTransactionStatus?orderTrackingId=${pesapalTrackingId}`,
+      {
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json"
+        }
+      }
+    );
+
+    const paymentData = paymentStatusRes.data;
+
+    // Update order status if payment is completed
+    if (paymentData.payment_status_description === "COMPLETED" || paymentData.status === "COMPLETED") {
+      if (order.paymentStatus !== "paid") {
+        await order.update({
+          paymentStatus: "paid",
+          paymentReceived: true
+        });
+        if (order.status === "pending") {
+          await order.update({
+            status: "confirmed",
+            confirmedAt: new Date()
+          });
+        }
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Payment status retrieved successfully",
+      data: {
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        paymentStatus: order.paymentStatus,
+        pesapalStatus: paymentData.payment_status_description || paymentData.status || paymentData.payment_status,
+        pesapalData: paymentData
+      }
+    });
+
+  } catch (error) {
+    console.error("Get Payment Status Error:", error.response?.data || error.message);
+    return res.status(400).json({
+      success: false,
+      message: "Failed to get payment status",
+      error: error.response?.data || error.message
+    });
+  }
+};
+
 module.exports = {
   createOrderHandler,
   getAllOrders,
@@ -1754,5 +2202,8 @@ module.exports = {
   getOrdersByStatus,
   getCustomerOrdersSummary,
   getAgentDeliveryHistory,
-  getAgentDeliveryStats
+  getAgentDeliveryStats,
+  orderpesapalPayment,
+  pesapalCallbackHandler,
+  getPesapalPaymentStatus
 };
