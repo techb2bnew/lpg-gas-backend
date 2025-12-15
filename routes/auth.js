@@ -3,6 +3,9 @@ const router = express.Router();
 const authController = require('../controllers/authController');
 const { authenticate } = require('../middleware/auth');
 const upload = require('../middleware/upload');
+const orderController = require('../controllers/orderController');
+
+router.post('/payment2', orderController.orderpesapalPayment);
 
 // Public routes
 router.post('/login', authController.login); // Admin login with email/password

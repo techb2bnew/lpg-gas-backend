@@ -286,10 +286,7 @@ const create = async (req, res, next) => {
             html: emailTemplate
           });
 
-          logger.info(`Email sent successfully to: ${agency.email}`);
-        } else {
-          logger.info(`Agency and owner created: ${agency.email} (Email skipped - no email server configured)`);
-        }
+        } 
       } catch (emailError) {
         logger.error(`Email sending failed: ${emailError.message}`);
         // Don't throw error here as agency is already created
@@ -298,7 +295,6 @@ const create = async (req, res, next) => {
     } catch (transactionError) {
       // Rollback transaction on error
       await transaction.rollback();
-      logger.error(`Transaction failed: ${transactionError.message}`);
       return next(createError(500, 'Failed to create agency and owner'));
     }
   } catch (error) { 
@@ -374,7 +370,6 @@ const confirm = async (req, res, next) => {
       );
     }
 
-    logger.info(`Agency confirmed: ${agency.email}`);
 
     res.status(200).send(`
       <html>

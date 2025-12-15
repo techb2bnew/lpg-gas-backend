@@ -427,13 +427,6 @@ const getAllOrders = async (req, res, next) => {
     const userRole = req.user.role;
     const userEmail = req.user.email;
 
-    // Debug logging
-    console.log('🔍 Order Filtering Debug:', {
-      userRole,
-      userEmail,
-      deliveryAgentId: req.user.deliveryAgentId
-    });
-
     // If ID is provided, get specific order
     if (id) {
       const order = await Order.findByPk(id, {
@@ -1770,16 +1763,16 @@ const orderpesapalPayment = async (req, res) => {
 
     //  Generate token
     console.log("Pesapal Payment Token Generating...");
+    const pesapalBaseUrl = process.env.PESAPAL_URL || "https://pay.pesapal.com";
     const authRes = await axios.post(
-      "https://pay.pesapal.com/v3/api/Auth/RequestToken",
+      `${pesapalBaseUrl}/v3/api/Auth/RequestToken`,
       {
         consumer_key: process.env.PESAPAL_CONSUMER_KEY,
         consumer_secret: process.env.PESAPAL_CONSUMER_SECRET
       }
     );
 
-    const token = authRes.data.token;
-    console.log("Pesapal Token:", token);
+    const token = authRes?.data?.token;
 
     //  Prepare dynamic values from environment or defaults
     const currency = process.env.PESAPAL_CURRENCY || "KES";
@@ -1878,7 +1871,7 @@ const orderpesapalPayment = async (req, res) => {
 
     // Create Pesapal order
     const orderRes = await axios.post(
-      "https://pay.pesapal.com/v3/api/Transactions/SubmitOrderRequest",
+      `${pesapalBaseUrl}/v3/api/Transactions/SubmitOrderRequest`,
       orderData,
       {
         headers: {
@@ -1887,8 +1880,6 @@ const orderpesapalPayment = async (req, res) => {
         }
       }
     );
-
-    console.log("Pesapal Order Created:", orderRes.data);
 
     // Store Pesapal tracking ID in order adminNotes for later reference
     const trackingIdNote = `\n\n[Pesapal Payment Initiated ${new Date().toISOString()}] Pesapal Tracking ID: ${orderRes.data.order_tracking_id}`;
@@ -1906,7 +1897,6 @@ const orderpesapalPayment = async (req, res) => {
     });
 
   } catch (error) {
-    console.error("Pesapal Error:", error.response?.data || error.message);
     return res.status(400).json({
       success: false,
       message: "Pesapal Order Creation Failed",
@@ -1920,8 +1910,6 @@ const pesapalCallbackHandler = async (req, res) => {
   try {
     const { OrderTrackingId, OrderMerchantReference } = req.query;
 
-    console.log("Pesapal Callback Received:", { OrderTrackingId, OrderMerchantReference });
-
     if (!OrderTrackingId) {
       return res.status(400).json({
         success: false,
@@ -1930,8 +1918,9 @@ const pesapalCallbackHandler = async (req, res) => {
     }
 
     // 1️⃣ Generate token for Pesapal API
+    const pesapalBaseUrl = process.env.PESAPAL_URL || "https://pay.pesapal.com";
     const authRes = await axios.post(
-      "https://pay.pesapal.com/v3/api/Auth/RequestToken",
+      `${pesapalBaseUrl}/v3/api/Auth/RequestToken`,
       {
         consumer_key: process.env.PESAPAL_CONSUMER_KEY,
         consumer_secret: process.env.PESAPAL_CONSUMER_SECRET
@@ -1942,7 +1931,7 @@ const pesapalCallbackHandler = async (req, res) => {
 
     // 2️⃣ Get payment status from Pesapal API
     const paymentStatusRes = await axios.get(
-      `https://pay.pesapal.com/v3/api/Transactions/GetTransactionStatus?orderTrackingId=${OrderTrackingId}`,
+      `${pesapalBaseUrl}/v3/api/Transactions/GetTransactionStatus?orderTrackingId=${OrderTrackingId}`,
       {
         headers: {
           "Authorization": `Bearer ${token}`,
@@ -1950,6 +1939,7 @@ const pesapalCallbackHandler = async (req, res) => {
         }
       }
     );
+    console.log("Pesapal Payment Status----------------------:", paymentStatusRes);
 
     const paymentData = paymentStatusRes.data;
     console.log("Pesapal Payment Status:", paymentData);
@@ -2127,8 +2117,9 @@ const getPesapalPaymentStatus = async (req, res) => {
     }
 
     // Generate token
+    const pesapalBaseUrl = process.env.PESAPAL_URL || "https://pay.pesapal.com";
     const authRes = await axios.post(
-      "https://pay.pesapal.com/v3/api/Auth/RequestToken",
+      `${pesapalBaseUrl}/v3/api/Auth/RequestToken`,
       {
         consumer_key: process.env.PESAPAL_CONSUMER_KEY,
         consumer_secret: process.env.PESAPAL_CONSUMER_SECRET
@@ -2139,7 +2130,7 @@ const getPesapalPaymentStatus = async (req, res) => {
 
     // Get payment status from Pesapal
     const paymentStatusRes = await axios.get(
-      `https://pay.pesapal.com/v3/api/Transactions/GetTransactionStatus?orderTrackingId=${pesapalTrackingId}`,
+      `${pesapalBaseUrl}/v3/api/Transactions/GetTransactionStatus?orderTrackingId=${pesapalTrackingId}`,
       {
         headers: {
           "Authorization": `Bearer ${token}`,
@@ -2188,6 +2179,103 @@ const getPesapalPaymentStatus = async (req, res) => {
   }
 };
 
+// Get delivery agents list based on logged-in user
+const orderDetailslist = async (req, res, next) => {
+  try {
+    // Check if user is authenticated
+    if (!req.user) {
+      return next(createError(401, 'Authentication required'));
+    }
+
+    const userRole = req.user.role;
+    const userEmail = req.user.email;
+    const { page = 1, limit = 50, status } = req.query;
+    const offset = (page - 1) * limit;
+
+    // Build where clause based on user role
+    const whereClause = {};
+
+    if (status) {
+      whereClause.status = status;
+    }
+
+    // Role-based filtering
+    if (userRole === 'customer') {
+      // Customer can only see their own orders
+      whereClause.customerEmail = userEmail;
+    } else if (userRole === 'agent') {
+      // Agent can see orders assigned to them
+      if (!req.user.deliveryAgentId) {
+        return next(createError(400, 'Agent profile not properly linked. Please contact admin.'));
+      }
+      whereClause.assignedAgentId = req.user.deliveryAgentId;
+      
+      // If no specific status is requested, show active orders (assigned + out_for_delivery)
+      if (!status) {
+        whereClause.status = { [Op.in]: ['assigned', 'out_for_delivery'] };
+      }
+    } else if (userRole === 'agency_owner') {
+      // Agency owner can only see orders for their agency
+      if (!req.user.agencyId) {
+        return next(createError(400, 'Agency profile not properly linked. Please contact admin.'));
+      }
+      whereClause.agencyId = req.user.agencyId;
+    } else if (userRole !== 'admin') {
+      return next(createError(403, 'Access denied. Insufficient permissions'));
+    }
+    // Admin can see all orders (no additional filtering)
+
+    // Get orders count
+    const count = await Order.count({
+      where: whereClause,
+      distinct: true
+    });
+
+    // Get orders
+    const orders = await Order.findAll({
+      where: whereClause,
+      include: [
+        {
+          model: DeliveryAgent,
+          as: 'DeliveryAgent',
+          attributes: ['id', 'name', 'phone', 'vehicleNumber', 'status', 'profileImage'],
+          required: false
+        },
+        {
+          model: Agency,
+          as: 'Agency',
+          attributes: ['id', 'name', 'email', 'phone', 'city', 'status'],
+          required: false
+        }
+      ],
+      limit: Math.min(parseInt(limit), 100),
+      offset: parseInt(offset),
+      order: [['createdAt', 'DESC']]
+    });
+
+    const totalPages = Math.ceil(count / limit);
+
+    res.status(200).json({
+      success: true,
+      message: 'Orders retrieved successfully',
+      data: {
+        orders: orders.map(order => formatOrderResponse(order, true)),
+        pagination: {
+          currentPage: parseInt(page),
+          totalPages,
+          totalItems: count,
+          itemsPerPage: parseInt(limit)
+        },
+        userRole
+      }
+    });
+
+  } catch (error) {
+    logger.error(`Error getting orders: ${error.message}`);
+    next(error);
+  }
+};
+
 module.exports = {
   createOrderHandler,
   getAllOrders,
@@ -2205,5 +2293,6 @@ module.exports = {
   getAgentDeliveryStats,
   orderpesapalPayment,
   pesapalCallbackHandler,
-  getPesapalPaymentStatus
+  getPesapalPaymentStatus,
+  orderDetailslist
 };

@@ -18,7 +18,6 @@ class SocketService {
     this.io = io;
     this.setupMiddleware();
     this.setupConnectionHandlers();
-    logger.info('Socket.IO service initialized');
   }
 
   // Setup authentication middleware
@@ -26,19 +25,15 @@ class SocketService {
     this.io.use(async (socket, next) => {
       try {
         const token = socket.handshake.auth.token || socket.handshake.headers.authorization?.replace('Bearer ', '');
-        
-        logger.info(`Socket authentication attempt - Token present: ${!!token}`);
-        
+                
         if (!token) {
           // Allow anonymous connections for public data
-          logger.info('No token provided - connecting as anonymous');
           socket.user = { role: 'anonymous', id: 'anonymous' };
           return next();
         }
 
         // Verify JWT token
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        logger.info(`Token decoded successfully - Role: ${decoded.role}, UserId: ${decoded.userId}`);
         
         // Fetch user details based on role
         let user = null;
@@ -61,7 +56,6 @@ class SocketService {
         }
 
         if (!user) {
-          logger.warn(`User not found in database - UserId: ${decoded.userId}, Role: ${decoded.role}`);
           return next(new Error('User not found'));
         }
 
@@ -73,13 +67,9 @@ class SocketService {
           deliveryAgentId: decoded.deliveryAgentId
         };
 
-        logger.info(`Socket user authenticated - Email: ${user.email}, Role: ${decoded.role}`);
         next();
       } catch (error) {
-        logger.error('Socket authentication error:', error.message);
-        if (error.name === 'JsonWebTokenError') {
-          logger.error('Invalid JWT token provided');
-        } else if (error.name === 'TokenExpiredError') {
+        if (error.name === 'TokenExpiredError') {
           logger.error('JWT token has expired');
         }
         // Allow connection but mark as anonymous
@@ -99,7 +89,6 @@ class SocketService {
   // Handle new socket connection
   handleConnection(socket) {
     const user = socket.user;
-    logger.info(`🔌 Socket connected: ${socket.id} - User: ${user.email || 'anonymous'} (${user.role})`);
 
     // Store user connection
     if (user.id !== 'anonymous') {
@@ -108,9 +97,6 @@ class SocketService {
         user: user,
         connectedAt: new Date()
       });
-      logger.info(`👤 User registered in connected users map: ${user.email}`);
-    } else {
-      logger.info(`👻 Anonymous connection: ${socket.id}`);
     }
 
     // Join appropriate rooms based on user role
@@ -135,7 +121,6 @@ class SocketService {
       timestamp: new Date()
     });
     
-    logger.info(`✅ Connection setup complete for ${user.email || 'anonymous'} - Role: ${user.role}`);
   }
 
   // Join rooms based on user role
@@ -146,14 +131,12 @@ class SocketService {
         socket.join(this.rooms.AGENCIES);
         socket.join(this.rooms.CUSTOMERS);
         socket.join(this.rooms.AGENTS);
-        logger.info(`Admin joined all rooms: ${socket.id}`);
         break;
       
       case 'agency_owner':
         socket.join(this.rooms.AGENCIES);
         socket.join(`agency-${user.agencyId}`);
         socket.join(`agency-owner-${user.email}`);
-        logger.info(`Agency owner joined rooms: ${socket.id} - Agency: ${user.agencyId}, Email: ${user.email}`);
         break;
       
       case 'agent':
@@ -162,18 +145,16 @@ class SocketService {
         if (user.agencyId) {
           socket.join(`agency-${user.agencyId}`);
         }
-        logger.info(`Agent joined rooms: ${socket.id} - Agent: ${user.id}`);
         break;
       
       case 'customer':
         socket.join(this.rooms.CUSTOMERS);
         socket.join(`customer-${user.email}`);
         socket.join('agencies-updates'); // Join agencies updates room for real-time updates
-        logger.info(`Customer joined rooms: ${socket.id} - Email: ${user.email}`);
         break;
       
       default:
-        logger.info(`Anonymous user connected: ${socket.id}`);
+        break;
     }
   }
 
@@ -186,7 +167,6 @@ class SocketService {
       if (this.canJoinRoom(user, roomName)) {
         socket.join(roomName);
         socket.emit('room-joined', { room: roomName });
-        logger.info(`User ${user.id} joined room: ${roomName}`);
       } else {
         socket.emit('error', { message: 'Access denied to room' });
       }
@@ -196,7 +176,6 @@ class SocketService {
     socket.on('leave-room', (roomName) => {
       socket.leave(roomName);
       socket.emit('room-left', { room: roomName });
-      logger.info(`User ${user.id} left room: ${roomName}`);
     });
 
     // Get online users (admin only)
@@ -222,9 +201,8 @@ class SocketService {
       if (user.role !== 'anonymous') {
         socket.join('orders-updates');
         socket.emit('subscribed', { type: 'orders' });
-        logger.info(`📦 User ${user.email} subscribed to orders updates`);
       } else {
-        logger.warn(`❌ Anonymous user tried to subscribe to orders`);
+        logger.warn(`Anonymous user tried to subscribe to orders`);
       }
     });
 
@@ -232,9 +210,8 @@ class SocketService {
       if (user.role !== 'anonymous') {
         socket.join('products-updates');
         socket.emit('subscribed', { type: 'products' });
-        logger.info(`📦 User ${user.email} subscribed to products updates`);
       } else {
-        logger.warn(`❌ Anonymous user tried to subscribe to products`);
+        logger.warn(`Anonymous user tried to subscribe to products`);
       }
     });
 
@@ -242,9 +219,8 @@ class SocketService {
       if (user.role === 'admin') {
         socket.join('agencies-updates');
         socket.emit('subscribed', { type: 'agencies' });
-        logger.info(`🏢 Admin ${user.email} subscribed to agencies updates`);
       } else {
-        logger.warn(`❌ Non-admin user ${user.email} tried to subscribe to agencies`);
+        logger.warn(`Non-admin user ${user.email} tried to subscribe to agencies`);
       }
     });
 
@@ -252,9 +228,8 @@ class SocketService {
       if (user.role === 'admin' || user.role === 'agency_owner') {
         socket.join('agents-updates');
         socket.emit('subscribed', { type: 'agents' });
-        logger.info(`👥 User ${user.email} subscribed to agents updates`);
       } else {
-        logger.warn(`❌ User ${user.email} tried to subscribe to agents without permission`);
+        logger.warn(`User ${user.email} tried to subscribe to agents without permission`);
       }
     });
 
@@ -262,9 +237,8 @@ class SocketService {
       if (user.role === 'admin' || (user.role === 'agency_owner' && user.agencyId === agencyId)) {
         socket.join(`inventory-${agencyId}`);
         socket.emit('subscribed', { type: 'inventory', agencyId });
-        logger.info(`📊 User ${user.email} subscribed to inventory updates for agency ${agencyId}`);
       } else {
-        logger.warn(`❌ User ${user.email} tried to subscribe to inventory ${agencyId} without permission`);
+        logger.warn(`User ${user.email} tried to subscribe to inventory ${agencyId} without permission`);
       }
     });
 
@@ -274,9 +248,8 @@ class SocketService {
       if (user.role === 'customer' || user.role === 'admin') {
         socket.join(`agency-${agencyId}`);
         socket.emit('joined-room', { type: 'agency', agencyId });
-        logger.info(`🏢 Customer ${user.email} joined agency room: ${agencyId}`);
       } else {
-        logger.warn(`❌ User ${user.email} tried to join agency room ${agencyId} without permission`);
+        logger.warn(`User ${user.email} tried to join agency room ${agencyId} without permission`);
       }
     });
 
@@ -286,9 +259,8 @@ class SocketService {
       if (user.role === 'customer' || user.role === 'admin') {
         socket.leave(`agency-${agencyId}`);
         socket.emit('left-room', { type: 'agency', agencyId });
-        logger.info(`🏢 Customer ${user.email} left agency room: ${agencyId}`);
       } else {
-        logger.warn(`❌ User ${user.email} tried to leave agency room ${agencyId} without permission`);
+        logger.warn(`User ${user.email} tried to leave agency room ${agencyId} without permission`);
       }
     });
   }
@@ -318,7 +290,6 @@ class SocketService {
   // Handle socket disconnection
   handleDisconnection(socket) {
     const user = socket.user;
-    logger.info(`Socket disconnected: ${socket.id} - User: ${user.email || 'anonymous'}`);
     
     if (user.id !== 'anonymous') {
       this.connectedUsers.delete(user.id);
@@ -348,20 +319,15 @@ class SocketService {
       data: orderData,
       timestamp: new Date()
     });
-
-    logger.info(`Order created notification sent: ${orderData.orderNumber}`);
   }
 
   emitOrderStatusUpdated(orderData) {
-    logger.info(`📤 Emitting order status update: ${orderData.orderNumber} - ${orderData.status}`);
-    
     // Emit to admin room
     this.io.to(this.rooms.ADMIN).emit('order:status-updated', {
       type: 'ORDER_STATUS_UPDATED',
       data: orderData,
       timestamp: new Date()
     });
-    logger.info(`  ✅ Emitted to ADMIN room`);
 
     // Emit to agency
     if (orderData.agencyId) {
@@ -370,7 +336,6 @@ class SocketService {
         data: orderData,
         timestamp: new Date()
       });
-      logger.info(`  ✅ Emitted to agency-${orderData.agencyId} room`);
     }
 
     // Emit to agent
@@ -380,7 +345,6 @@ class SocketService {
         data: orderData,
         timestamp: new Date()
       });
-      logger.info(`  ✅ Emitted to agent-${orderData.assignedAgentId} room`);
     }
 
     // Emit to customer
@@ -391,15 +355,6 @@ class SocketService {
         data: orderData,
         timestamp: new Date()
       });
-      logger.info(`  ✅ Emitted to ${customerRoom} room`);
-      
-      // Check if anyone is in this room
-      const sockets = this.io.sockets.adapter.rooms.get(customerRoom);
-      if (sockets && sockets.size > 0) {
-        logger.info(`  👥 ${sockets.size} client(s) in ${customerRoom} room`);
-      } else {
-        logger.warn(`  ⚠️ No clients in ${customerRoom} room!`);
-      }
     }
 
     // Emit to all subscribed
@@ -408,9 +363,6 @@ class SocketService {
       data: orderData,
       timestamp: new Date()
     });
-    logger.info(`  ✅ Emitted to orders-updates room`);
-
-    logger.info(`✅ Order status updated notification sent: ${orderData.orderNumber} - ${orderData.status}`);
   }
 
   emitOrderAssigned(orderData) {
@@ -443,8 +395,6 @@ class SocketService {
         timestamp: new Date()
       });
     }
-
-    logger.info(`Order assigned notification sent: ${orderData.orderNumber} - Agent: ${orderData.agentName}`);
   }
 
   emitOrderDelivered(orderData) {
@@ -477,8 +427,6 @@ class SocketService {
         timestamp: new Date()
       });
     }
-
-    logger.info(`Order delivered notification sent: ${orderData.orderNumber}`);
   }
 
   // Product notifications
@@ -500,8 +448,6 @@ class SocketService {
       data: productData,
       timestamp: new Date()
     });
-
-    logger.info(`Product created notification sent: ${productData.productName}`);
   }
 
   emitProductUpdated(productData) {
@@ -522,8 +468,6 @@ class SocketService {
       data: productData,
       timestamp: new Date()
     });
-
-    logger.info(`Product updated notification sent: ${productData.productName}`);
   }
 
   emitInventoryUpdated(inventoryData) {
@@ -560,27 +504,11 @@ class SocketService {
         timestamp: new Date()
       };
       
-      logger.info(`📤 Emitting product:availability-changed to agency-${inventoryData.agencyId} room`);
-      logger.info(`📤 Data:`, JSON.stringify(productAvailabilityData, null, 2));
       
       // Emit to specific agency room only
       this.io.to(`agency-${inventoryData.agencyId}`).emit('product:availability-changed', productAvailabilityData);
-      
-      // Check if anyone is in the specific agency room
-      const agencyRoomName = `agency-${inventoryData.agencyId}`;
-      const agencySockets = this.io.sockets.adapter.rooms.get(agencyRoomName);
-      if (agencySockets && agencySockets.size > 0) {
-        logger.info(`📤 ${agencySockets.size} client(s) in ${agencyRoomName} room - Event will be delivered ✅`);
-      } else {
-        logger.warn(`📤 ⚠️ No clients in ${agencyRoomName} room - Event will NOT be received!`);
-      }
-      
-      // Check total connected clients
-      const totalClients = this.io.sockets.sockets.size;
-      logger.info(`📤 Total connected clients: ${totalClients}`);
     }
 
-    logger.info(`Inventory updated notification sent: ${inventoryData.productName} - Agency: ${inventoryData.agencyId}`);
   }
 
   emitLowStockAlert(inventoryData) {
@@ -598,7 +526,6 @@ class SocketService {
       });
     }
 
-    logger.info(`Low stock alert sent: ${inventoryData.productName} - Stock: ${inventoryData.stock}`);
   }
 
   // Agency notifications
@@ -615,7 +542,6 @@ class SocketService {
       timestamp: new Date()
     });
 
-    logger.info(`Agency created notification sent: ${agencyData.name}`);
   }
 
   emitAgencyUpdated(agencyData) {
@@ -636,8 +562,6 @@ class SocketService {
       data: agencyData,
       timestamp: new Date()
     });
-
-    logger.info(`Agency updated notification sent: ${agencyData.name}`);
   }
 
   // Delivery Agent notifications
@@ -656,7 +580,6 @@ class SocketService {
       });
     }
 
-    logger.info(`Agent created notification sent: ${agentData.name}`);
   }
 
   emitAgentUpdated(agentData) {
@@ -680,11 +603,9 @@ class SocketService {
       timestamp: new Date()
     });
 
-    logger.info(`Agent updated notification sent: ${agentData.name}`);
   }
 
   emitAgentStatusUpdated(agentData) {
-    logger.info(`📤 Emitting agent status update: ${agentData.name} - ${agentData.status}`);
     
     // Emit to admin room
     this.io.to(this.rooms.ADMIN).emit('agent:status-updated', {
@@ -692,7 +613,6 @@ class SocketService {
       data: agentData,
       timestamp: new Date()
     });
-    logger.info(`  ✅ Emitted to ADMIN room`);
 
     // Emit to agency owner room
     if (agentData.agencyId) {
@@ -701,7 +621,6 @@ class SocketService {
         data: agentData,
         timestamp: new Date()
       });
-      logger.info(`  ✅ Emitted to agency-${agentData.agencyId} room`);
     }
 
     // Emit to specific agent room
@@ -710,7 +629,6 @@ class SocketService {
       data: agentData,
       timestamp: new Date()
     });
-    logger.info(`  ✅ Emitted to agent-${agentData.id} room`);
 
     // Emit to agents-updates room for all subscribed users
     this.io.to('agents-updates').emit('agent:status-updated', {
@@ -718,9 +636,7 @@ class SocketService {
       data: agentData,
       timestamp: new Date()
     });
-    logger.info(`  ✅ Emitted to agents-updates room`);
 
-    logger.info(`✅ Agent status updated notification sent: ${agentData.name} - ${agentData.status}`);
   }
 
   // Generic notification method
@@ -741,7 +657,6 @@ class SocketService {
       });
     }
 
-    logger.info(`Generic notification sent: ${type}`);
   }
 
   // Broadcast system message
@@ -753,7 +668,6 @@ class SocketService {
       timestamp: new Date()
     });
 
-    logger.info(`System message broadcasted: ${message}`);
   }
 
   // Terms & Conditions notifications
@@ -771,7 +685,6 @@ class SocketService {
       timestamp: new Date()
     });
 
-    logger.info(`Terms & Conditions created notification sent: ${termsData.title}`);
   }
 
   emitTermsUpdated(termsData) {
@@ -788,7 +701,6 @@ class SocketService {
       timestamp: new Date()
     });
 
-    logger.info(`Terms & Conditions updated notification sent: ${termsData.title}`);
   }
 
   // Privacy Policy notifications
@@ -806,7 +718,6 @@ class SocketService {
       timestamp: new Date()
     });
 
-    logger.info(`Privacy Policy created notification sent: ${policyData.title}`);
   }
 
   emitPrivacyPolicyUpdated(policyData) {
@@ -823,7 +734,6 @@ class SocketService {
       timestamp: new Date()
     });
 
-    logger.info(`Privacy Policy updated notification sent: ${policyData.title}`);
   }
 
   // Tax Management notifications
@@ -848,7 +758,6 @@ class SocketService {
       timestamp: new Date()
     });
 
-    logger.info(`Tax configuration updated notification sent`);
   }
 
   emitTaxDeleted(taxData) {
@@ -872,7 +781,6 @@ class SocketService {
       timestamp: new Date()
     });
 
-    logger.info(`Tax configuration deleted notification sent`);
   }
 
   // Platform Charge notifications
@@ -897,7 +805,6 @@ class SocketService {
       timestamp: new Date()
     });
 
-    logger.info(`Platform charge updated notification sent`);
   }
 
   emitPlatformChargeDeleted(chargeData) {
@@ -921,7 +828,6 @@ class SocketService {
       timestamp: new Date()
     });
 
-    logger.info(`Platform charge deleted notification sent`);
   }
 
   // Delivery Charge notifications
@@ -948,7 +854,6 @@ class SocketService {
       timestamp: new Date()
     });
 
-    logger.info(`Delivery charge created notification sent for agency ${deliveryChargeData.agencyId}`);
   }
 
   emitDeliveryChargeUpdated(deliveryChargeData) {
@@ -973,8 +878,6 @@ class SocketService {
       data: deliveryChargeData,
       timestamp: new Date()
     });
-
-    logger.info(`Delivery charge updated notification sent for agency ${deliveryChargeData.agencyId}`);
   }
 
   emitDeliveryChargeDeleted(deliveryChargeData) {
@@ -1000,7 +903,6 @@ class SocketService {
       timestamp: new Date()
     });
 
-    logger.info(`Delivery charge deleted notification sent for agency ${deliveryChargeData.agencyId}`);
   }
 
   // Coupon notifications
@@ -1027,7 +929,6 @@ class SocketService {
       timestamp: new Date()
     });
 
-    logger.info(`Coupon created notification sent: ${couponData.code}`);
   }
 
   emitCouponUpdated(couponData) {
@@ -1052,8 +953,6 @@ class SocketService {
       data: couponData,
       timestamp: new Date()
     });
-
-    logger.info(`Coupon updated notification sent: ${couponData.code}`);
   }
 
   emitCouponStatusChanged(couponData) {
@@ -1078,8 +977,6 @@ class SocketService {
       data: couponData,
       timestamp: new Date()
     });
-
-    logger.info(`Coupon status changed notification sent: ${couponData.code} - Active: ${couponData.isActive}`);
   }
 
   emitCouponDeleted(couponData) {
@@ -1104,8 +1001,6 @@ class SocketService {
       data: couponData,
       timestamp: new Date()
     });
-
-    logger.info(`Coupon deleted notification sent: ${couponData.code}`);
   }
 
   // Send message to specific user by email
@@ -1113,16 +1008,10 @@ class SocketService {
     // Determine the room based on user type
     const userRoom = userType === 'agency_owner' ? `agency-owner-${email}` : `customer-${email}`;
     
-    logger.info(`📤 Sending ${eventName} to ${userType} ${email}`);
-    logger.info(`   Room: ${userRoom}`);
-    
     // Check if anyone is in this room
     const sockets = this.io.sockets.adapter.rooms.get(userRoom);
-    if (sockets && sockets.size > 0) {
-      logger.info(`   👥 ${sockets.size} client(s) in room - Event will be delivered ✅`);
-    } else {
-      logger.warn(`   ⚠️ No clients in room ${userRoom} - Event will NOT be received!`);
-      logger.warn(`   User might be offline or not connected via socket`);
+    if (!sockets || sockets.size === 0) {
+      logger.warn(`No clients in room ${userRoom} - Event will NOT be received! User might be offline`);
     }
     
     this.io.to(userRoom).emit(eventName, {
@@ -1130,8 +1019,6 @@ class SocketService {
       data,
       timestamp: new Date()
     });
-
-    logger.info(`✅ ${eventName} event emitted to ${email}`);
   }
 
   // Get connected users count

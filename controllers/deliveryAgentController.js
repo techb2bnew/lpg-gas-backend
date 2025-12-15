@@ -55,18 +55,6 @@ const createAgent = async (req, res, next) => {
       return next(createError(400, 'Vehicle number already exists'));
     }
 
-    // Check if PAN card already exists
-    const existingPan = await DeliveryAgent.findOne({ where: { panCardNumber: value.panCardNumber } });
-    if (existingPan) {
-      return next(createError(400, 'PAN card number already exists'));
-    }
-
-    // Check if Aadhar card already exists
-    const existingAadhar = await DeliveryAgent.findOne({ where: { aadharCardNumber: value.aadharCardNumber } });
-    if (existingAadhar) {
-      return next(createError(400, 'Aadhar card number already exists'));
-    }
-
     // Check if driving licence already exists
     const existingLicence = await DeliveryAgent.findOne({ where: { drivingLicence: value.drivingLicence } });
     if (existingLicence) {
@@ -105,7 +93,7 @@ const createAgent = async (req, res, next) => {
     res.status(201).json({
       success: true,
       message: 'Delivery agent created successfully',
-      data: { 
+      data: {
         agent,
         ...(req.file && { imageUrl: req.file.path }) // Return cloudinary URL
       }
@@ -124,12 +112,12 @@ const getAllAgents = async (req, res, next) => {
     // If ID is provided, get specific agent
     if (id) {
       const whereClause = { id };
-      
+
       // Filter by agency if user is agency owner
       if (req.user && req.user.role === 'agency_owner' && req.user.agencyId) {
         whereClause.agencyId = req.user.agencyId;
       }
-      
+
       const agent = await DeliveryAgent.findOne({ where: whereClause });
       if (!agent) {
         return next(createError(404, 'Delivery agent not found'));
@@ -144,12 +132,12 @@ const getAllAgents = async (req, res, next) => {
 
     // Build where clause
     const whereClause = {};
-    
+
     // Filter by agency if user is agency owner
     if (req.user && req.user.role === 'agency_owner' && req.user.agencyId) {
       whereClause.agencyId = req.user.agencyId;
     }
-    
+
     if (status) {
       whereClause.status = status;
     }
@@ -243,21 +231,6 @@ const updateAgent = async (req, res, next) => {
       }
     }
 
-    // Check if PAN card is being updated and if it already exists
-    if (value.panCardNumber && value.panCardNumber !== agent.panCardNumber) {
-      const existingPan = await DeliveryAgent.findOne({ where: { panCardNumber: value.panCardNumber } });
-      if (existingPan) {
-        return next(createError(400, 'PAN card number already exists'));
-      }
-    }
-
-    // Check if Aadhar card is being updated and if it already exists
-    if (value.aadharCardNumber && value.aadharCardNumber !== agent.aadharCardNumber) {
-      const existingAadhar = await DeliveryAgent.findOne({ where: { aadharCardNumber: value.aadharCardNumber } });
-      if (existingAadhar) {
-        return next(createError(400, 'Aadhar card number already exists'));
-      }
-    }
 
     // Check if driving licence is being updated and if it already exists
     if (value.drivingLicence && value.drivingLicence !== agent.drivingLicence) {
@@ -294,7 +267,7 @@ const updateAgent = async (req, res, next) => {
     res.status(200).json({
       success: true,
       message: 'Delivery agent updated successfully',
-      data: { 
+      data: {
         agent,
         ...(req.file && { imageUrl: req.file.path }) // Return cloudinary URL
       }
@@ -390,7 +363,7 @@ const getAgentDetails = async (req, res, next) => {
   try {
     const userRole = req.user.role;
     const { agentId } = req.params;
-    
+
     // Check if user is admin or agency owner
     if (userRole !== 'admin' && userRole !== 'agency_owner') {
       return next(createError(403, 'Only admin and agency owners can access agent details'));
@@ -473,7 +446,7 @@ const getAgentDetails = async (req, res, next) => {
     // Get delivery performance by month (last 6 months)
     const sixMonthsAgo = new Date();
     sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-    
+
     const monthlyPerformance = orders
       .filter(order => order.deliveredAt && new Date(order.deliveredAt) >= sixMonthsAgo)
       .reduce((acc, order) => {
@@ -501,8 +474,6 @@ const getAgentDetails = async (req, res, next) => {
           email: agent.email,
           phone: agent.phone,
           vehicleNumber: agent.vehicleNumber,
-          panCardNumber: agent.panCardNumber,
-          aadharCardNumber: agent.aadharCardNumber,
           drivingLicence: agent.drivingLicence,
           bankDetails: agent.bankDetails,
           status: agent.status,

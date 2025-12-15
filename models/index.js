@@ -13,6 +13,7 @@ const Tax = require('./Tax');
 const PlatformCharge = require('./PlatformCharge');
 const Coupon = require('./Coupon');
 const DeliveryCharge = require('./DeliveryCharge');
+const Banner = require('./Banner');
 
 // Define associations
 Order.belongsTo(DeliveryAgent, { 
@@ -117,5 +118,6 @@ module.exports = {
   Tax,
   PlatformCharge,
   Coupon,
-  DeliveryCharge
+  DeliveryCharge,
+  Banner
 };

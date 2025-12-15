@@ -201,14 +201,6 @@ const getAllProducts = async (req, res, next) => {
       });
     }
 
-    console.log('🔍 DEBUG: API Call Details:', {
-      user: req.user ? req.user.email : 'No user',
-      role: req.user ? req.user.role : 'No role',
-      status: status,
-      whereClause: whereClause,
-      agencyId: agencyId
-    });
-
     const products = await Product.findAndCountAll({
       where: whereClause,
       include: includeOptions,

@@ -42,14 +42,7 @@ try {
   fs.writeFileSync('.env', envContent);
   console.log('✅ .env file fixed successfully!');
   console.log('📧 Email configuration added:');
-  console.log('   - EMAIL_HOST=smtp.gmail.com');
-  console.log('   - EMAIL_PORT=587');
-  console.log('   - EMAIL_USER=ramnishbase2brand@gmail.com');
-  console.log('   - EMAIL_PASSWORD=hsjy sqaw jdue lsrd');
-  console.log('🌐 URLs added:');
-  console.log('   - BACKEND_BASE_URL=http://localhost:5000');
-  console.log('   - FRONTEND_URL=http://localhost:3000');
-  console.log('\n🚀 Now restart your server to apply changes!');
+
 } catch (error) {
   console.error('❌ Error fixing .env file:', error.message);
 }

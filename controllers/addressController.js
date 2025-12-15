@@ -35,7 +35,6 @@ const addAddressHandler = async (req, res, next) => {
     // Update user
     await user.update({ addresses: updatedAddresses });
 
-    logger.info(`Address added for user: ${user.email}`);
 
     res.status(201).json({
       success: true,
@@ -88,7 +87,6 @@ const updateAddressHandler = async (req, res, next) => {
 
     const userId = req.user.userId;
     
-    logger.info(`Attempting to update address ${addressId} for user ${userId}`);
     
     // Get current user
     const user = await User.findByPk(userId);
@@ -97,7 +95,6 @@ const updateAddressHandler = async (req, res, next) => {
     }
 
     const addresses = user.addresses || [];
-    logger.info(`Current addresses before update: ${JSON.stringify(addresses)}`);
     
     const addressIndex = addresses.findIndex(addr => addr.id === addressId);
 
@@ -111,8 +108,6 @@ const updateAddressHandler = async (req, res, next) => {
       ...value
     };
     
-    logger.info(`Updated address: ${JSON.stringify(addresses[addressIndex])}`);
-
     // Use direct SQL update to ensure persistence
     const [results] = await sequelize.query(
       'UPDATE users SET addresses = :addresses WHERE id = :userId',
@@ -125,7 +120,6 @@ const updateAddressHandler = async (req, res, next) => {
       }
     );
     
-    logger.info(`Direct SQL update completed, affected rows: ${results}`);
     
     // Verify the update by querying the database directly
     const [verifyResults] = await sequelize.query(
@@ -138,7 +132,6 @@ const updateAddressHandler = async (req, res, next) => {
     
     const updatedAddresses = verifyResults[0]?.addresses || [];
     const updatedAddress = updatedAddresses.find(addr => addr.id === addressId);
-    logger.info(`Verified updated address in database: ${JSON.stringify(updatedAddress)}`);
 
     res.status(200).json({
       success: true,
@@ -148,7 +141,6 @@ const updateAddressHandler = async (req, res, next) => {
       }
     });
   } catch (error) {
-    logger.error(`Error updating address: ${error.message}`);
     next(error);
   }
 };
@@ -158,9 +150,7 @@ const deleteAddressHandler = async (req, res, next) => {
   try {
     const { addressId } = req.params;
     const userId = req.user.userId;
-    
-    logger.info(`Attempting to delete address ${addressId} for user ${userId}`);
-    
+        
     // Get current user
     const user = await User.findByPk(userId);
     if (!user) {
@@ -168,7 +158,6 @@ const deleteAddressHandler = async (req, res, next) => {
     }
     
     const addresses = user.addresses || [];
-    logger.info(`Current addresses before deletion: ${JSON.stringify(addresses)}`);
     
     const addressToDelete = addresses.find(addr => addr.id === addressId);
     if (!addressToDelete) {
@@ -176,7 +165,6 @@ const deleteAddressHandler = async (req, res, next) => {
     }
     
     const filteredAddresses = addresses.filter(addr => addr.id !== addressId);
-    logger.info(`Filtered addresses after deletion: ${JSON.stringify(filteredAddresses)}`);
     
     // Use direct SQL update to ensure persistence
     const [results] = await sequelize.query(
@@ -190,7 +178,6 @@ const deleteAddressHandler = async (req, res, next) => {
       }
     );
     
-    logger.info(`Direct SQL update completed, affected rows: ${results}`);
     
     // Verify the update by querying the database directly
     const [verifyResults] = await sequelize.query(
@@ -202,7 +189,6 @@ const deleteAddressHandler = async (req, res, next) => {
     );
     
     const updatedAddresses = verifyResults[0]?.addresses || [];
-    logger.info(`Verified addresses in database: ${JSON.stringify(updatedAddresses)}`);
 
     res.status(200).json({
       success: true,
@@ -213,7 +199,6 @@ const deleteAddressHandler = async (req, res, next) => {
       }
     });
   } catch (error) {
-    logger.error(`Error deleting address: ${error.message}`);
     next(error);
   }
 };
@@ -254,8 +239,6 @@ const updateAllAddressesHandler = async (req, res, next) => {
     
     // Reload user from database to ensure data is persisted
     await user.reload();
-
-    logger.info(`All addresses updated for user: ${user.email}`);
 
     res.status(200).json({
       success: true,

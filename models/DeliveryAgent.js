@@ -38,24 +38,6 @@ const DeliveryAgent = sequelize.define('DeliveryAgent', {
       len: [5, 20]
     }
   },
-  panCardNumber: {
-    type: DataTypes.STRING,
-    allowNull: false,
-    unique: true,
-    validate: {
-      len: [10, 10],
-      is: /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/
-    }
-  },
-  aadharCardNumber: {
-    type: DataTypes.STRING,
-    allowNull: false,
-    unique: true,
-    validate: {
-      len: [12, 12],
-      is: /^[0-9]{12}$/
-    }
-  },
   drivingLicence: {
     type: DataTypes.STRING,
     allowNull: false,

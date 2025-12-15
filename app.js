@@ -100,13 +100,10 @@ app.use('/api/auth', require('./routes/auth'));
 app.use('/api/delivery-agents', require('./routes/deliveryAgent'));
 
 // Product routes with debugging
-console.log('Loading product routes...');
 try {
   const productRoutes = require('./routes/product');
-  console.log('Product routes loaded successfully:', typeof productRoutes);
-  console.log('Product routes object:', productRoutes);
+
   app.use('/api/products', productRoutes);
-  console.log('Product routes registered at /api/products');
 } catch (error) {
   console.error('Error loading product routes:', error);
   process.exit(1);
@@ -138,6 +135,10 @@ app.use('/api/delivery-charges', require('./routes/deliveryCharge'));
 
 // Public routes for Terms & Conditions and Privacy Policy
 app.use('/api/public', require('./routes/public'));
+
+
+app.use('/api/banners', require('./routes/banner'));
+
 
 // 404 handler
 app.use(require('./middleware/notFound'));
