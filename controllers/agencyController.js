@@ -13,6 +13,7 @@ const { createError } = require('../utils/errorHandler');
 const logger = require('../utils/logger');
 const crypto = require('crypto');
 const bcrypt = require('bcrypt');
+const notificationService = require('../services/notificationService');
 
 // Admin guard helper
 const ensureAdmin = async (userId) => {
@@ -244,6 +245,22 @@ const create = async (req, res, next) => {
         });
       }
 
+      // Send Firebase notification to all admins about new agency
+      try {
+        const admins = await User.findAll({ where: { role: 'admin' } });
+        const adminTokens = admins.map(admin => admin.fcmToken).filter(token => token);
+        if (adminTokens.length > 0) {
+          await notificationService.sendToMultipleDevices(
+            adminTokens,
+            'New Agency Created!',
+            `Agency "${agency.name}" has been created in ${agency.city}.`,
+            { type: 'AGENCY_CREATED', agencyId: agency.id, agencyName: agency.name }
+          );
+        }
+      } catch (notifError) {
+        logger.error('Error sending agency created notification:', notifError.message);
+      }
+
       // Send response first
       res.status(201).json({
         success: true,
@@ -368,6 +385,21 @@ const confirm = async (req, res, next) => {
         },
         { where: { id: agency.ownerId } }
       );
+
+      // Send Firebase notification to agency owner about confirmation
+      try {
+        const agencyOwner = await AgencyOwner.findByPk(agency.ownerId);
+        if (agencyOwner && agencyOwner.fcmToken) {
+          await notificationService.sendToDevice(
+            agencyOwner.fcmToken,
+            'Agency Confirmed! 🎉',
+            `Your agency "${agency.name}" has been confirmed and is now active.`,
+            { type: 'AGENCY_CONFIRMED', agencyId: agency.id, agencyName: agency.name }
+          );
+        }
+      } catch (notifError) {
+        logger.error('Error sending agency confirmation notification:', notifError.message);
+      }
     }
 
 
@@ -769,6 +801,21 @@ const update = async (req, res, next) => {
           { where: { agencyId: agency.id } }
         );
       }
+
+      // Send Firebase notification to agency owner about update
+      try {
+        const agencyOwner = await AgencyOwner.findOne({ where: { agencyId: agency.id } });
+        if (agencyOwner && agencyOwner.fcmToken) {
+          await notificationService.sendToDevice(
+            agencyOwner.fcmToken,
+            'Agency Updated',
+            `Your agency "${agency.name}" profile has been updated by admin.`,
+            { type: 'AGENCY_UPDATED', agencyId: agency.id, agencyName: agency.name }
+          );
+        }
+      } catch (notifError) {
+        logger.error('Error sending agency update notification:', notifError.message);
+      }
       
       res.status(200).json({ success: true, message: 'Agency updated', data: agency });
     }
@@ -807,6 +854,25 @@ const updateStatus = async (req, res, next) => {
       }
 
       logger.info(`Admin updated agency status: ${agency.email} -> ${status}`);
+
+      // Send Firebase notification to agency owner about status change
+      try {
+        const agencyOwner = await AgencyOwner.findOne({ where: { agencyId: agency.id } });
+        if (agencyOwner && agencyOwner.fcmToken) {
+          const statusMessage = status === 'active' 
+            ? `Your agency "${agency.name}" has been activated.`
+            : `Your agency "${agency.name}" has been deactivated. Please contact admin.`;
+          
+          await notificationService.sendToDevice(
+            agencyOwner.fcmToken,
+            status === 'active' ? 'Agency Activated! ✅' : 'Agency Deactivated ⚠️',
+            statusMessage,
+            { type: 'AGENCY_STATUS_CHANGED', agencyId: agency.id, status: status }
+          );
+        }
+      } catch (notifError) {
+        logger.error('Error sending agency status notification:', notifError.message);
+      }
       
       // Emit socket notification for agency status change
       const socketService = global.socketService;
@@ -908,6 +974,21 @@ const remove = async (req, res, next) => {
     const orderCount = await Order.count({ where: { agencyId: agency.id } });
     if (orderCount > 0) {
       return next(createError(400, 'Cannot delete agency with existing orders. Please reassign or archive orders first.'));
+    }
+
+    // Send Firebase notification to agency owner before deletion
+    try {
+      const agencyOwner = await AgencyOwner.findOne({ where: { agencyId: agency.id } });
+      if (agencyOwner && agencyOwner.fcmToken) {
+        await notificationService.sendToDevice(
+          agencyOwner.fcmToken,
+          'Agency Deleted',
+          `Your agency "${agency.name}" has been deleted by admin.`,
+          { type: 'AGENCY_DELETED', agencyId: agency.id, agencyName: agency.name }
+        );
+      }
+    } catch (notifError) {
+      logger.error('Error sending agency deletion notification:', notifError.message);
     }
 
     // Use transaction to delete both agency and agency owner

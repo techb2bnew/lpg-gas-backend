@@ -72,6 +72,15 @@ const DeliveryAgent = sequelize.define('DeliveryAgent', {
       model: 'agencies',
       key: 'id'
     }
+  },
+  // FCM Push Notification Token
+  fcmToken: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
+  fcmDeviceType: {
+    type: DataTypes.STRING,
+    allowNull: true
   }
 }, {
   tableName: 'delivery_agents',

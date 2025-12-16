@@ -1,6 +1,7 @@
 const { AgencyOwner } = require('../models');
 const { sequelize } = require('../config/database');
 const bcrypt = require('bcrypt');
+const logger = require('../utils/logger');
 
 // Middleware to automatically fix double-hashed passwords for agency owners
 const fixAgencyPassword = async (req, res, next) => {
@@ -21,8 +22,6 @@ const fixAgencyPassword = async (req, res, next) => {
           const isDoubleHashed = agencyOwner.password.length > 70;
           
           if (isDoubleHashed) {
-            console.log(`🔧 Auto-fixing double-hashed password for: ${email}`);
-            
             // Generate a simple password based on email
             const simplePassword = email.split('@')[0] + '123';
             
@@ -37,9 +36,6 @@ const fixAgencyPassword = async (req, res, next) => {
                 type: sequelize.QueryTypes.UPDATE
               }
             );
-
-            console.log(`✅ Auto-fixed password for: ${email}`);
-            console.log(`🔑 New Password: ${simplePassword}`);
           }
         }
       }
@@ -47,7 +43,7 @@ const fixAgencyPassword = async (req, res, next) => {
     
     next();
   } catch (error) {
-    console.error('❌ Error in agency password fix middleware:', error);
+    logger.error('Error in agency password fix middleware:', error);
     next(); // Continue even if this middleware fails
   }
 };

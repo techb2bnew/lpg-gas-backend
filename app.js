@@ -139,7 +139,6 @@ app.use('/api/public', require('./routes/public'));
 
 app.use('/api/banners', require('./routes/banner'));
 
-
 // 404 handler
 app.use(require('./middleware/notFound'));
 

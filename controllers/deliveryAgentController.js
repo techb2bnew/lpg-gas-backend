@@ -1,8 +1,9 @@
-const { DeliveryAgent } = require('../models');
+const { DeliveryAgent, AgencyOwner } = require('../models');
 const { createDeliveryAgent, updateDeliveryAgent, updateStatus } = require('../validations/deliveryAgentValidation');
 const { createError } = require('../utils/errorHandler');
 const logger = require('../utils/logger');
 const { Op } = require('sequelize');
+const notificationService = require('../services/notificationService');
 
 // Get socket service instance
 const getSocketService = () => {
@@ -88,6 +89,21 @@ const createAgent = async (req, res, next) => {
         status: agent.status,
         createdBy: req.user.email || 'admin'
       });
+    }
+
+    // Send Firebase notification to agency owner about new agent
+    try {
+      const agencyOwner = await AgencyOwner.findOne({ where: { agencyId: agent.agencyId } });
+      if (agencyOwner && agencyOwner.fcmToken) {
+        await notificationService.sendToDevice(
+          agencyOwner.fcmToken,
+          'New Delivery Agent Added! 🚚',
+          `${agent.name} has been added as a delivery agent.`,
+          { type: 'AGENT_CREATED', agentId: agent.id, agentName: agent.name }
+        );
+      }
+    } catch (notifError) {
+      logger.error('Error sending agent creation notification:', notifError.message);
     }
 
     res.status(201).json({
@@ -264,6 +280,20 @@ const updateAgent = async (req, res, next) => {
       });
     }
 
+    // Send Firebase notification to agent about profile update
+    try {
+      if (agent.fcmToken) {
+        await notificationService.sendToDevice(
+          agent.fcmToken,
+          'Profile Updated',
+          'Your delivery agent profile has been updated.',
+          { type: 'AGENT_PROFILE_UPDATED', agentId: agent.id }
+        );
+      }
+    } catch (notifError) {
+      logger.error('Error sending agent update notification:', notifError.message);
+    }
+
     res.status(200).json({
       success: true,
       message: 'Delivery agent updated successfully',
@@ -291,6 +321,20 @@ const deleteAgent = async (req, res, next) => {
     const agent = await DeliveryAgent.findOne({ where: whereClause });
     if (!agent) {
       return next(createError(404, 'Delivery agent not found'));
+    }
+
+    // Send Firebase notification to agent before deletion
+    try {
+      if (agent.fcmToken) {
+        await notificationService.sendToDevice(
+          agent.fcmToken,
+          'Account Removed',
+          'Your delivery agent account has been removed from the system.',
+          { type: 'AGENT_DELETED', agentId: agent.id }
+        );
+      }
+    } catch (notifError) {
+      logger.error('Error sending agent deletion notification:', notifError.message);
     }
 
     await agent.destroy();
@@ -346,6 +390,27 @@ const updateAgentStatus = async (req, res, next) => {
         updatedBy: req.user.email || 'admin',
         timestamp: new Date()
       });
+    }
+
+    // Send Firebase notification to agent about status change
+    try {
+      if (agent.fcmToken) {
+        const statusMessages = {
+          'active': 'Your account is now active. You can receive delivery assignments.',
+          'inactive': 'Your account has been set to inactive.',
+          'busy': 'Your status has been set to busy.',
+          'offline': 'Your status has been set to offline.'
+        };
+        
+        await notificationService.sendToDevice(
+          agent.fcmToken,
+          value.status === 'active' ? 'Account Activated! ✅' : 'Status Updated',
+          statusMessages[value.status] || `Your status has been updated to ${value.status}.`,
+          { type: 'AGENT_STATUS_CHANGED', agentId: agent.id, status: value.status }
+        );
+      }
+    } catch (notifError) {
+      logger.error('Error sending agent status notification:', notifError.message);
     }
 
     res.status(200).json({

@@ -19,6 +19,7 @@ const logger = require('../utils/logger');
 const fs = require('fs');
 const path = require('path');
 const { Op } = require('sequelize');
+const notificationService = require('../services/notificationService');
 
 // Get socket service instance
 const getSocketService = () => {
@@ -53,30 +54,23 @@ const login = async (req, res, next) => {
       return next(createError(400, error.details[0].message));
     }
 
-    const { email, password } = req.body;
+    const { email, password, fcmToken, fcmDeviceType } = req.body;
     const trimmedEmail = email.trim();
     const emailWhereClause = { [Op.iLike]: trimmedEmail };
-
-    console.log('🔍 LOGIN DEBUG:', { email, passwordLength: password.length });
 
     // First try to find in User table (Admin, Customer, Agent)
     let user = await User.findOne({
       where: { email: emailWhereClause }
     });
 
-    console.log('👤 User found in User table:', !!user);
-
     let userType = 'user';
     let userData = null;
     let agencyOwnerRecord = null;
 
     if (user) {
-      console.log('🔐 User found - checking password...');
       // Verify password for User
       const isPasswordValid = await user.comparePassword(password);
-      console.log('✅ User password valid:', isPasswordValid);
       if (!isPasswordValid) {
-        console.log('❌ User password invalid');
         return next(createError(401, 'Invalid email or password'));
       }
 
@@ -89,29 +83,22 @@ const login = async (req, res, next) => {
       userType = user.role;
       userData = user.toPublicJSON();
     } else {
-      console.log('👤 User not found in User table, checking AgencyOwner...');
       // If not found in User table, try AgencyOwner table
       const agencyOwner = await AgencyOwner.findOne({
         where: { email: emailWhereClause }
       });
       agencyOwnerRecord = agencyOwner;
 
-      console.log('🏢 AgencyOwner found:', !!agencyOwner);
       if (agencyOwner) {
-        console.log('🔐 AgencyOwner found - checking details...');
-       
         // Verify password for AgencyOwner
         const isPasswordValid = await agencyOwner.comparePassword(password);
-        console.log('✅ AgencyOwner password valid:', isPasswordValid);
         
         if (!isPasswordValid) {
-          console.log('❌ AgencyOwner password invalid');
           return next(createError(401, 'Invalid email or password'));
         }
 
         // Check if agency owner is active
         if (!agencyOwner.isActive) {
-          console.log('❌ AgencyOwner account inactive');
           return next(createError(403, 'Your Account is inactive Please Contact Admin.'));
         }
 
@@ -130,15 +117,16 @@ const login = async (req, res, next) => {
           city: agencyOwner.city,
           pincode: agencyOwner.pincode,
           state: agencyOwner.state,
+          fcmToken: fcmToken,
+          fcmDeviceType: fcmDeviceType,
           createdAt: agencyOwner.createdAt,
           updatedAt: agencyOwner.updatedAt
         };
 
+       
         // Update last login time
         await agencyOwner.update({ lastLoginAt: new Date() });
-        console.log('✅ AgencyOwner login successful!');
       } else {
-        console.log('❌ No AgencyOwner found with email:', email);
         return next(createError(401, 'Invalid email or password'));
       }
     }
@@ -245,22 +233,14 @@ const setupUser = async (req, res, next) => {
 // Get current user profile
 const getProfile = async (req, res, next) => {
   try {
-    console.log('🔍 PROFILE DEBUG - User ID:', req.user.userId);
-    console.log('🔍 PROFILE DEBUG - User role:', req.user.role);
-    
     let user = await User.findByPk(req.user.userId);
     let userData = null;
-    
-    console.log('🔍 PROFILE DEBUG - User found in User table:', !!user);
-    
     if (user) {
       // User found in User table
       userData = user.toPublicJSON();
     } else {
       // Check AgencyOwner table
-      console.log('🔍 PROFILE DEBUG - Checking AgencyOwner table...');
       const agencyOwner = await AgencyOwner.findByPk(req.user.userId);
-      console.log('🔍 PROFILE DEBUG - AgencyOwner found:', !!agencyOwner);
       if (agencyOwner) {
         // Get agency status for agency owner
         const { Agency } = require('../models');
@@ -380,6 +360,7 @@ const getProfile = async (req, res, next) => {
         }
       }
     }
+
 
     res.status(200).json({
       success: true,
@@ -711,13 +692,20 @@ const verifyOTP = async (req, res, next) => {
       return next(createError(400, error.details[0].message));
     }
 
-    const { email, otp, role } = value;
+    const { email, otp, role, fcmToken, fcmDeviceType } = value;
 
     // For agent role, double-check if agent exists in delivery_agents table
     if (role === 'agent') {
       const agent = await DeliveryAgent.findOne({ where: { email } });
       if (!agent) {
         return next(createError(403, 'You are not registered as a delivery agent. Please contact admin.'));
+      }
+      // Update agent's FCM token if provided
+      if (fcmToken) {
+        await agent.update({
+          fcmToken: fcmToken,
+          fcmDeviceType: fcmDeviceType || null
+        });
       }
     }
 
@@ -748,6 +736,14 @@ const verifyOTP = async (req, res, next) => {
     if (user.isBlocked) {
       logger.warn(`Blocked user attempted OTP verify: ${email} (${role})`);
       return next(createError(403, 'Your account is blocked by admin please contact.'));
+    }
+
+    // Update user's FCM token if provided
+    if (fcmToken) {
+      await user.update({
+        fcmToken: fcmToken,
+        fcmDeviceType: fcmDeviceType || null
+      });
     }
 
     // Generate token with role and additional data

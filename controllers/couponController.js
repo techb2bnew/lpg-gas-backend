@@ -1,6 +1,9 @@
 const Coupon = require('../models/Coupon');
 const { createError } = require('../utils/errorHandler');
 const { Op } = require('sequelize');
+const { User } = require('../models');
+const notificationService = require('../services/notificationService');
+const logger = require('../utils/logger');
 
 // Add Coupon (Agency Owner)
 exports.addCoupon = async (req, res, next) => {
@@ -68,6 +71,31 @@ exports.addCoupon = async (req, res, next) => {
         isActive: coupon.isActive,
         action: 'created'
       });
+    }
+
+    // Send Firebase notification to all customers about new coupon
+    try {
+      const customers = await User.findAll({ 
+        where: { role: 'customer', isBlocked: false },
+        attributes: ['fcmToken']
+      });
+      const customerTokens = customers.map(c => c.fcmToken).filter(token => token);
+      
+      if (customerTokens.length > 0) {
+        const discountText = coupon.discountType === 'percentage' 
+          ? `${coupon.discountValue}% OFF` 
+          : `$${coupon.discountValue} OFF`;
+        
+        await notificationService.sendToMultipleDevices(
+          customerTokens,
+          'New Coupon Available! 🎁',
+          `Use code "${coupon.code}" to get ${discountText} on your next order!`,
+          { type: 'COUPON_CREATED', couponId: coupon.id, couponCode: coupon.code, agencyId: coupon.agencyId }
+        );
+        logger.info(`Coupon notification sent to ${customerTokens.length} customers`);
+      }
+    } catch (notifError) {
+      logger.error('Error sending coupon notification:', notifError.message);
     }
 
     res.status(201).json({
@@ -254,6 +282,32 @@ exports.toggleCouponStatus = async (req, res, next) => {
         isActive: coupon.isActive,
         action: 'status-changed'
       });
+    }
+
+    // Send Firebase notification when coupon is activated
+    if (isActive) {
+      try {
+        const customers = await User.findAll({ 
+          where: { role: 'customer', isBlocked: false },
+          attributes: ['fcmToken']
+        });
+        const customerTokens = customers.map(c => c.fcmToken).filter(token => token);
+        
+        if (customerTokens.length > 0) {
+          const discountText = coupon.discountType === 'percentage' 
+            ? `${coupon.discountValue}% OFF` 
+            : `$${coupon.discountValue} OFF`;
+          
+          await notificationService.sendToMultipleDevices(
+            customerTokens,
+            'Coupon Activated! 🎉',
+            `Coupon "${coupon.code}" is now active! Get ${discountText} on your order.`,
+            { type: 'COUPON_ACTIVATED', couponId: coupon.id, couponCode: coupon.code, agencyId: coupon.agencyId }
+          );
+        }
+      } catch (notifError) {
+        logger.error('Error sending coupon activation notification:', notifError.message);
+      }
     }
 
     res.status(200).json({

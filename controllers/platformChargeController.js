@@ -1,5 +1,8 @@
 const PlatformCharge = require('../models/PlatformCharge');
 const { ErrorHandler } = require('../utils/errorHandler');
+const { AgencyOwner } = require('../models');
+const notificationService = require('../services/notificationService');
+const logger = require('../utils/logger');
 
 // Add or Update Platform Charge
 exports.addOrUpdatePlatformCharge = async (req, res, next) => {
@@ -33,6 +36,27 @@ exports.addOrUpdatePlatformCharge = async (req, res, next) => {
         isActive: platformCharge.isActive,
         action: 'updated'
       });
+    }
+
+    // Send Firebase notification to all agency owners about platform charge update
+    try {
+      const agencyOwners = await AgencyOwner.findAll({
+        where: { isActive: true },
+        attributes: ['fcmToken']
+      });
+      const ownerTokens = agencyOwners.map(o => o.fcmToken).filter(token => token);
+      
+      if (ownerTokens.length > 0) {
+        await notificationService.sendToMultipleDevices(
+          ownerTokens,
+          'Platform Charge Updated 💰',
+          `Platform charge has been set to $${platformCharge.amount || 0} per order.`,
+          { type: 'PLATFORM_CHARGE_UPDATED', chargeId: platformCharge.id, amount: platformCharge.amount }
+        );
+        logger.info(`Platform charge notification sent to ${ownerTokens.length} agency owners`);
+      }
+    } catch (notifError) {
+      logger.error('Error sending platform charge notification:', notifError.message);
     }
 
     res.status(200).json({
@@ -100,6 +124,26 @@ exports.deletePlatformCharge = async (req, res, next) => {
         isActive: false,
         action: 'deleted'
       });
+    }
+
+    // Send Firebase notification to all agency owners about platform charge removal
+    try {
+      const agencyOwners = await AgencyOwner.findAll({
+        where: { isActive: true },
+        attributes: ['fcmToken']
+      });
+      const ownerTokens = agencyOwners.map(o => o.fcmToken).filter(token => token);
+      
+      if (ownerTokens.length > 0) {
+        await notificationService.sendToMultipleDevices(
+          ownerTokens,
+          'Platform Charge Removed',
+          'Platform charge has been removed. No platform fee will be applied to orders.',
+          { type: 'PLATFORM_CHARGE_DELETED' }
+        );
+      }
+    } catch (notifError) {
+      logger.error('Error sending platform charge deletion notification:', notifError.message);
     }
 
     res.status(200).json({

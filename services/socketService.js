@@ -1,5 +1,6 @@
 const logger = require('../utils/logger');
 const jwt = require('jsonwebtoken');
+const notificationService = require('./notificationService');
 
 class SocketService {
   constructor() {
@@ -1041,6 +1042,110 @@ class SocketService {
       return true;
     }
     return false;
+  }
+
+  // ========== PUSH NOTIFICATION METHODS ==========
+
+  /**
+   * Send push notification for order status update to customer
+   * @param {string} fcmToken - Customer's FCM token
+   * @param {object} orderData - Order data
+   */
+  async sendOrderPushToCustomer(fcmToken, orderData) {
+    if (!fcmToken) return;
+    try {
+      await notificationService.sendOrderStatusNotification(fcmToken, orderData);
+    } catch (error) {
+      logger.error('Failed to send order push to customer:', error.message);
+    }
+  }
+
+  /**
+   * Send push notification for new order to agency
+   * @param {string} fcmToken - Agency owner's FCM token
+   * @param {object} orderData - Order data
+   */
+  async sendNewOrderPushToAgency(fcmToken, orderData) {
+    if (!fcmToken) return;
+    try {
+      await notificationService.sendNewOrderToAgency(fcmToken, orderData);
+    } catch (error) {
+      logger.error('Failed to send new order push to agency:', error.message);
+    }
+  }
+
+  /**
+   * Send push notification for order assignment to delivery agent
+   * @param {string} fcmToken - Agent's FCM token
+   * @param {object} orderData - Order data
+   */
+  async sendOrderAssignedPushToAgent(fcmToken, orderData) {
+    if (!fcmToken) return;
+    try {
+      await notificationService.sendOrderAssignedToAgent(fcmToken, orderData);
+    } catch (error) {
+      logger.error('Failed to send order assigned push to agent:', error.message);
+    }
+  }
+
+  /**
+   * Send push notification for low stock alert
+   * @param {string} fcmToken - Agency owner's FCM token
+   * @param {object} productData - Product data
+   */
+  async sendLowStockPush(fcmToken, productData) {
+    if (!fcmToken) return;
+    try {
+      await notificationService.sendLowStockAlert(fcmToken, productData);
+    } catch (error) {
+      logger.error('Failed to send low stock push:', error.message);
+    }
+  }
+
+  /**
+   * Send promotional push notification to multiple customers
+   * @param {string[]} fcmTokens - Array of FCM tokens
+   * @param {object} promoData - Promotion data
+   */
+  async sendPromotionalPush(fcmTokens, promoData) {
+    if (!fcmTokens || fcmTokens.length === 0) return;
+    try {
+      await notificationService.sendPromotionalNotification(fcmTokens, promoData);
+    } catch (error) {
+      logger.error('Failed to send promotional push:', error.message);
+    }
+  }
+
+  /**
+   * Send custom push notification
+   * @param {string} fcmToken - FCM token
+   * @param {string} title - Notification title
+   * @param {string} body - Notification body
+   * @param {object} data - Additional data
+   */
+  async sendCustomPush(fcmToken, title, body, data = {}) {
+    if (!fcmToken) return;
+    try {
+      await notificationService.sendToDevice(fcmToken, title, body, data);
+    } catch (error) {
+      logger.error('Failed to send custom push:', error.message);
+    }
+  }
+
+  /**
+   * Send push notification to multiple devices
+   * @param {string[]} fcmTokens - Array of FCM tokens
+   * @param {string} title - Notification title
+   * @param {string} body - Notification body
+   * @param {object} data - Additional data
+   */
+  async sendMultiplePush(fcmTokens, title, body, data = {}) {
+    if (!fcmTokens || fcmTokens.length === 0) return;
+    try {
+      await notificationService.sendToMultipleDevices(fcmTokens, title, body, data);
+    } catch (error) {
+      logger.error('Failed to send multiple push:', error.message);
+    }
   }
 }
 

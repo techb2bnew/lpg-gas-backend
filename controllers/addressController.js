@@ -3,6 +3,7 @@ const { sequelize } = require('../config/database');
 const { addAddress, updateAddress } = require('../validations/addressValidation');
 const { createError } = require('../utils/errorHandler');
 const logger = require('../utils/logger');
+const notificationService = require('../services/notificationService');
 
 // Add new address to user profile
 const addAddressHandler = async (req, res, next) => {
@@ -35,6 +36,19 @@ const addAddressHandler = async (req, res, next) => {
     // Update user
     await user.update({ addresses: updatedAddresses });
 
+    // Send Firebase notification
+    try {
+      if (user.fcmToken) {
+        await notificationService.sendToDevice(
+          user.fcmToken,
+          'Address Added',
+          `New address "${value.title || 'Address'}" has been added to your profile.`,
+          { type: 'ADDRESS_ADDED', addressId: newAddress.id }
+        );
+      }
+    } catch (notifError) {
+      logger.error('Error sending address added notification:', notifError.message);
+    }
 
     res.status(201).json({
       success: true,
@@ -133,6 +147,20 @@ const updateAddressHandler = async (req, res, next) => {
     const updatedAddresses = verifyResults[0]?.addresses || [];
     const updatedAddress = updatedAddresses.find(addr => addr.id === addressId);
 
+    // Send Firebase notification
+    try {
+      if (user.fcmToken) {
+        await notificationService.sendToDevice(
+          user.fcmToken,
+          'Address Updated',
+          `Your address "${updatedAddress?.title || 'Address'}" has been updated.`,
+          { type: 'ADDRESS_UPDATED', addressId: addressId }
+        );
+      }
+    } catch (notifError) {
+      logger.error('Error sending address updated notification:', notifError.message);
+    }
+
     res.status(200).json({
       success: true,
       message: 'Address updated successfully',
@@ -190,6 +218,20 @@ const deleteAddressHandler = async (req, res, next) => {
     
     const updatedAddresses = verifyResults[0]?.addresses || [];
 
+    // Send Firebase notification
+    try {
+      if (user.fcmToken) {
+        await notificationService.sendToDevice(
+          user.fcmToken,
+          'Address Deleted',
+          `Address "${addressToDelete?.title || 'Address'}" has been removed from your profile.`,
+          { type: 'ADDRESS_DELETED', addressId: addressId }
+        );
+      }
+    } catch (notifError) {
+      logger.error('Error sending address deleted notification:', notifError.message);
+    }
+
     res.status(200).json({
       success: true,
       message: 'Address deleted successfully',
@@ -239,6 +281,20 @@ const updateAllAddressesHandler = async (req, res, next) => {
     
     // Reload user from database to ensure data is persisted
     await user.reload();
+
+    // Send Firebase notification
+    try {
+      if (user.fcmToken) {
+        await notificationService.sendToDevice(
+          user.fcmToken,
+          'Addresses Updated',
+          `Your addresses have been updated. Total addresses: ${user.addresses.length}`,
+          { type: 'ADDRESSES_BULK_UPDATE', count: user.addresses.length }
+        );
+      }
+    } catch (notifError) {
+      logger.error('Error sending bulk address update notification:', notifError.message);
+    }
 
     res.status(200).json({
       success: true,

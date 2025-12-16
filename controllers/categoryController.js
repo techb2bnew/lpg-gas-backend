@@ -1,7 +1,8 @@
-const { Category } = require('../models');
+const { Category, User, AgencyOwner } = require('../models');
 const { createError } = require('../utils/errorHandler');
 const logger = require('../utils/logger');
 const { Op } = require('sequelize');
+const notificationService = require('../services/notificationService');
 
 // Create a new category (Admin only)
 const createCategory = async (req, res, next) => {
@@ -35,6 +36,37 @@ const createCategory = async (req, res, next) => {
     });
 
     logger.info(`Category created: ${category.name} by admin`);
+
+    // Send Firebase notification to customers and agency owners about new category
+    try {
+      // Get customer tokens
+      const customers = await User.findAll({ 
+        where: { role: 'customer', isBlocked: false },
+        attributes: ['fcmToken']
+      });
+      const customerTokens = customers.map(c => c.fcmToken).filter(token => token);
+
+      // Get agency owner tokens
+      const agencyOwners = await AgencyOwner.findAll({
+        where: { isActive: true },
+        attributes: ['fcmToken']
+      });
+      const ownerTokens = agencyOwners.map(o => o.fcmToken).filter(token => token);
+
+      const allTokens = [...customerTokens, ...ownerTokens];
+      
+      if (allTokens.length > 0) {
+        await notificationService.sendToMultipleDevices(
+          allTokens,
+          'New Category Added! 🆕',
+          `Check out our new category: "${category.name}"`,
+          { type: 'CATEGORY_CREATED', categoryId: category.id, categoryName: category.name }
+        );
+        logger.info(`Category notification sent to ${allTokens.length} users`);
+      }
+    } catch (notifError) {
+      logger.error('Error sending category notification:', notifError.message);
+    }
 
     res.status(201).json({
       success: true,
@@ -225,6 +257,28 @@ const updateCategoryStatus = async (req, res, next) => {
     await category.update({ status });
 
     logger.info(`Category status updated: ${category.name} - ${status}`);
+
+    // Send Firebase notification when category becomes active
+    if (status === 'active') {
+      try {
+        const customers = await User.findAll({ 
+          where: { role: 'customer', isBlocked: false },
+          attributes: ['fcmToken']
+        });
+        const customerTokens = customers.map(c => c.fcmToken).filter(token => token);
+        
+        if (customerTokens.length > 0) {
+          await notificationService.sendToMultipleDevices(
+            customerTokens,
+            'Category Now Available! ✅',
+            `"${category.name}" category is now active. Explore products!`,
+            { type: 'CATEGORY_ACTIVATED', categoryId: category.id, categoryName: category.name }
+          );
+        }
+      } catch (notifError) {
+        logger.error('Error sending category status notification:', notifError.message);
+      }
+    }
 
     res.status(200).json({
       success: true,

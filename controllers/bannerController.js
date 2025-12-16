@@ -1,8 +1,9 @@
-const { Banner } = require('../models');
+const { Banner, User } = require('../models');
 const { createError } = require('../utils/errorHandler');
 const logger = require('../utils/logger');
 const cloudinary = require('../config/cloudinary');
 const { v4: uuidv4 } = require('uuid');
+const notificationService = require('../services/notificationService');
 
 // Create or update banner (only one banner exists)
 const create = async (req, res, next) => {
@@ -85,6 +86,27 @@ const create = async (req, res, next) => {
       banner = await Banner.create({ images });
       isNew = true;
       logger.info(`Banner created with ${images.length} images`);
+    }
+
+    // Send Firebase notification to all customers about new/updated banner
+    try {
+      const customers = await User.findAll({ 
+        where: { role: 'customer', isBlocked: false },
+        attributes: ['fcmToken']
+      });
+      const customerTokens = customers.map(c => c.fcmToken).filter(token => token);
+      
+      if (customerTokens.length > 0) {
+        await notificationService.sendToMultipleDevices(
+          customerTokens,
+          isNew ? 'New Offers Available! 🎉' : 'Check Out Latest Offers! 🔥',
+          'New promotional banners are live. Check out the latest deals and offers!',
+          { type: 'BANNER_UPDATE', bannerId: banner.id }
+        );
+        logger.info(`Banner notification sent to ${customerTokens.length} customers`);
+      }
+    } catch (notifError) {
+      logger.error('Error sending banner notification:', notifError.message);
     }
 
     res.status(isNew ? 201 : 200).json({

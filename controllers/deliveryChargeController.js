@@ -3,6 +3,7 @@ const { createDeliveryCharge, updateDeliveryCharge } = require('../validations/d
 const { createError } = require('../utils/errorHandler');
 const logger = require('../utils/logger');
 const axios = require('axios');
+const notificationService = require('../services/notificationService');
 
 // Get agency owner ID from request
 const getAgencyOwnerContext = async (userId) => {
@@ -61,6 +62,25 @@ const create = async (req, res, next) => {
         status: deliveryCharge.status,
         action: 'created'
       });
+    }
+
+    // Send Firebase notification to agency owner about delivery charge setup
+    try {
+      const agencyOwner = await AgencyOwner.findOne({ where: { agencyId: value.agencyId } });
+      if (agencyOwner && agencyOwner.fcmToken) {
+        const chargeText = deliveryCharge.chargeType === 'fixed' 
+          ? `Fixed: $${deliveryCharge.fixedAmount}` 
+          : `$${deliveryCharge.ratePerKm}/km`;
+        
+        await notificationService.sendToDevice(
+          agencyOwner.fcmToken,
+          'Delivery Charge Configured! 🚚',
+          `Delivery charge set: ${chargeText} within ${deliveryCharge.deliveryRadius}km radius.`,
+          { type: 'DELIVERY_CHARGE_CREATED', chargeId: deliveryCharge.id, agencyId: deliveryCharge.agencyId }
+        );
+      }
+    } catch (notifError) {
+      logger.error('Error sending delivery charge notification:', notifError.message);
     }
 
     res.status(201).json({
@@ -221,6 +241,25 @@ const update = async (req, res, next) => {
       });
     }
 
+    // Send Firebase notification to agency owner about delivery charge update
+    try {
+      const agencyOwner = await AgencyOwner.findOne({ where: { agencyId: deliveryCharge.agencyId } });
+      if (agencyOwner && agencyOwner.fcmToken) {
+        const chargeText = deliveryCharge.chargeType === 'fixed' 
+          ? `Fixed: $${deliveryCharge.fixedAmount}` 
+          : `$${deliveryCharge.ratePerKm}/km`;
+        
+        await notificationService.sendToDevice(
+          agencyOwner.fcmToken,
+          'Delivery Charge Updated',
+          `Delivery charge updated: ${chargeText} within ${deliveryCharge.deliveryRadius}km radius.`,
+          { type: 'DELIVERY_CHARGE_UPDATED', chargeId: deliveryCharge.id, agencyId: deliveryCharge.agencyId }
+        );
+      }
+    } catch (notifError) {
+      logger.error('Error sending delivery charge update notification:', notifError.message);
+    }
+
     res.status(200).json({
       success: true,
       message: 'Delivery charge updated successfully',
@@ -251,6 +290,21 @@ const deleteCharge = async (req, res, next) => {
       fixedAmount: deliveryCharge.fixedAmount,
       deliveryRadius: deliveryCharge.deliveryRadius,
     };
+
+    // Send Firebase notification to agency owner before deletion
+    try {
+      const agencyOwner = await AgencyOwner.findOne({ where: { agencyId: deliveryCharge.agencyId } });
+      if (agencyOwner && agencyOwner.fcmToken) {
+        await notificationService.sendToDevice(
+          agencyOwner.fcmToken,
+          'Delivery Charge Removed',
+          'Your delivery charge configuration has been deleted.',
+          { type: 'DELIVERY_CHARGE_DELETED', agencyId: deliveryCharge.agencyId }
+        );
+      }
+    } catch (notifError) {
+      logger.error('Error sending delivery charge deletion notification:', notifError.message);
+    }
 
     await deliveryCharge.destroy();
 

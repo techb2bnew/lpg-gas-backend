@@ -1,4 +1,4 @@
-const { Order, DeliveryAgent, Product, Tax, PlatformCharge, Coupon, DeliveryCharge, Agency, User } = require('../models');
+const { Order, DeliveryAgent, Product, Tax, PlatformCharge, Coupon, DeliveryCharge, Agency, User, AgencyOwner } = require('../models');
 const { createOrder, updateOrderStatus, assignAgent, sendOTP, verifyOTP, cancelOrder, returnOrder, markPaymentReceived } = require('../validations/orderValidation');
 const { createError } = require('../utils/errorHandler');
 const { sendEmail } = require('../config/email');
@@ -15,6 +15,7 @@ const {
 const logger = require('../utils/logger');
 const { Op, sequelize } = require('sequelize');
 const axios = require("axios");
+const notificationService = require('../services/notificationService');
 
 // Get socket service instance
 const getSocketService = () => {
@@ -407,6 +408,20 @@ const createOrderHandler = async (req, res, next) => {
       });
     }
 
+    // Send Firebase notification to agency owner about new order
+    try {
+      const agencyOwner = await AgencyOwner.findOne({ where: { agencyId: agencyId } });
+      if (agencyOwner && agencyOwner.fcmToken) {
+        await notificationService.sendNewOrderToAgency(agencyOwner.fcmToken, {
+          id: order.id,
+          orderNumber: order.orderNumber,
+          total: order.totalAmount
+        });
+      }
+    } catch (notifError) {
+      logger.error('Error sending new order notification:', notifError.message);
+    }
+
     res.status(201).json({
       success: true,
       message: 'Order created successfully',
@@ -504,7 +519,6 @@ const getAllOrders = async (req, res, next) => {
     if (userRole === 'customer') {
       // Customer can only see their own orders
       whereClause.customerEmail = userEmail;
-      console.log('👤 Customer filtering by email:', userEmail);
     } else if (userRole === 'agent') {
       // Agent can see orders assigned to them
       if (!req.user.deliveryAgentId) {
@@ -516,9 +530,6 @@ const getAllOrders = async (req, res, next) => {
       // If specific status is requested, respect that filter
       if (!status) {
         whereClause.status = { [Op.in]: ['assigned', 'out_for_delivery'] };
-        console.log('🚚 Agent filtering by assignedAgentId:', req.user.deliveryAgentId, 'and status: assigned, out_for_delivery (default)');
-      } else {
-        console.log('🚚 Agent filtering by assignedAgentId:', req.user.deliveryAgentId, 'and specific status:', status);
       }
     } else if (userRole === 'agency_owner') {
       // Agency owner can only see orders for their agency
@@ -526,13 +537,8 @@ const getAllOrders = async (req, res, next) => {
         return next(createError(400, 'Agency profile not properly linked. Please contact admin.'));
       }
       whereClause.agencyId = req.user.agencyId;
-      console.log('🏢 Agency owner filtering by agencyId:', req.user.agencyId);
-    } else if (userRole === 'admin') {
-      console.log('👑 Admin - no filtering applied');
     }
     // Admin can see all orders (no additional filtering)
-
-    console.log('🔍 Final whereClause:', JSON.stringify(whereClause, null, 2));
 
     // Filter by agent if provided (admin only)
     if (agentId && userRole === 'admin') {
@@ -713,6 +719,20 @@ const updateOrderStatusHandler = async (req, res, next) => {
       });
     }
 
+    // Send Firebase notification to customer about status update
+    try {
+      const customer = await User.findOne({ where: { email: order.customerEmail } });
+      if (customer && customer.fcmToken) {
+        await notificationService.sendOrderStatusNotification(customer.fcmToken, {
+          id: order.id,
+          orderNumber: order.orderNumber,
+          status: value.status
+        });
+      }
+    } catch (notifError) {
+      logger.error('Error sending order status notification:', notifError.message);
+    }
+
     res.status(200).json({
       success: true,
       message: 'Order status updated successfully',
@@ -775,6 +795,29 @@ const assignAgentHandler = async (req, res, next) => {
         customerEmail: order.customerEmail,
         agencyId: order.agencyId
       });
+    }
+
+    // Send Firebase notification to delivery agent about new assignment
+    try {
+      if (agent.fcmToken) {
+        await notificationService.sendOrderAssignedToAgent(agent.fcmToken, {
+          id: order.id,
+          orderNumber: order.orderNumber,
+          deliveryAddress: order.customerAddress
+        });
+      }
+      
+      // Also notify customer that agent is assigned
+      const customer = await User.findOne({ where: { email: order.customerEmail } });
+      if (customer && customer.fcmToken) {
+        await notificationService.sendOrderStatusNotification(customer.fcmToken, {
+          id: order.id,
+          orderNumber: order.orderNumber,
+          status: 'assigned'
+        });
+      }
+    } catch (notifError) {
+      logger.error('Error sending agent assignment notification:', notifError.message);
     }
 
     res.status(200).json({
@@ -844,6 +887,21 @@ const sendOTPHandler = async (req, res, next) => {
         assignedAgentId: order.assignedAgentId,
         otpSent: true
       });
+    }
+
+    // Send Firebase notification to customer about out for delivery
+    try {
+      const customer = await User.findOne({ where: { email: order.customerEmail } });
+      if (customer && customer.fcmToken) {
+        await notificationService.sendToDevice(
+          customer.fcmToken,
+          'Out for Delivery!',
+          `Your order #${order.orderNumber} is out for delivery. OTP sent to your email.`,
+          { type: 'OUT_FOR_DELIVERY', orderId: order.id, orderNumber: order.orderNumber }
+        );
+      }
+    } catch (notifError) {
+      logger.error('Error sending out for delivery notification:', notifError.message);
     }
 
     res.status(200).json({
@@ -933,6 +991,31 @@ const verifyOTPHandler = async (req, res, next) => {
         agencyId: order.agencyId,
         assignedAgentId: order.assignedAgentId
       });
+    }
+
+    // Send Firebase notification to customer about delivery
+    try {
+      const customer = await User.findOne({ where: { email: order.customerEmail } });
+      if (customer && customer.fcmToken) {
+        await notificationService.sendOrderStatusNotification(customer.fcmToken, {
+          id: order.id,
+          orderNumber: order.orderNumber,
+          status: 'delivered'
+        });
+      }
+      
+      // Notify agency owner about completed delivery
+      const agencyOwner = await AgencyOwner.findOne({ where: { agencyId: order.agencyId } });
+      if (agencyOwner && agencyOwner.fcmToken) {
+        await notificationService.sendToDevice(
+          agencyOwner.fcmToken,
+          'Order Delivered!',
+          `Order #${order.orderNumber} has been delivered successfully.`,
+          { type: 'ORDER_DELIVERED', orderId: order.id, orderNumber: order.orderNumber }
+        );
+      }
+    } catch (notifError) {
+      logger.error('Error sending delivery notification:', notifError.message);
     }
 
     res.status(200).json({
@@ -1028,6 +1111,21 @@ const cancelOrderHandler = async (req, res, next) => {
         assignedAgentId: order.assignedAgentId,
         reason: value.reason
       });
+    }
+
+    // Send Firebase notification to customer about cancellation
+    try {
+      const customer = await User.findOne({ where: { email: order.customerEmail } });
+      if (customer && customer.fcmToken) {
+        await notificationService.sendToDevice(
+          customer.fcmToken,
+          'Order Cancelled',
+          `Your order #${order.orderNumber} has been cancelled. Reason: ${value.reason || 'Not specified'}`,
+          { type: 'ORDER_CANCELLED', orderId: order.id, orderNumber: order.orderNumber }
+        );
+      }
+    } catch (notifError) {
+      logger.error('Error sending cancellation notification:', notifError.message);
     }
 
     res.status(200).json({
@@ -1203,11 +1301,6 @@ const getAgentDeliveryHistory = async (req, res, next) => {
     if (customerName) {
       whereClause.customerName = { [Op.iLike]: `%${customerName}%` };
     }
-
-    console.log('🔍 Agent History Filtering:', {
-      agentId: req.user.deliveryAgentId,
-      whereClause: JSON.stringify(whereClause, null, 2)
-    });
 
     const orders = await Order.findAndCountAll({
       where: whereClause,
@@ -1550,6 +1643,32 @@ const returnOrderHandler = async (req, res, next) => {
       });
     }
 
+    // Send Firebase notification to customer about return
+    try {
+      const customer = await User.findOne({ where: { email: order.customerEmail } });
+      if (customer && customer.fcmToken) {
+        await notificationService.sendToDevice(
+          customer.fcmToken,
+          'Order Returned',
+          `Your order #${order.orderNumber} has been returned. Reason: ${value.reason || 'Not specified'}`,
+          { type: 'ORDER_RETURNED', orderId: order.id, orderNumber: order.orderNumber }
+        );
+      }
+      
+      // Notify agency owner about return
+      const agencyOwner = await AgencyOwner.findOne({ where: { agencyId: order.agencyId } });
+      if (agencyOwner && agencyOwner.fcmToken) {
+        await notificationService.sendToDevice(
+          agencyOwner.fcmToken,
+          'Order Returned',
+          `Order #${order.orderNumber} has been returned. Stock restored.`,
+          { type: 'ORDER_RETURNED', orderId: order.id, orderNumber: order.orderNumber }
+        );
+      }
+    } catch (notifError) {
+      logger.error('Error sending return notification:', notifError.message);
+    }
+
     res.status(200).json({
       success: true,
       message: 'Order returned successfully',
@@ -1713,6 +1832,21 @@ const markPaymentReceivedHandler = async (req, res, next) => {
       });
     }
 
+    // Send Firebase notification to customer about payment and delivery
+    try {
+      const customer = await User.findOne({ where: { email: order.customerEmail } });
+      if (customer && customer.fcmToken) {
+        await notificationService.sendToDevice(
+          customer.fcmToken,
+          'Order Delivered!',
+          `Your order #${order.orderNumber} has been delivered. Payment ${value.paymentReceived ? 'received' : 'pending'}.`,
+          { type: 'ORDER_DELIVERED', orderId: order.id, orderNumber: order.orderNumber, paymentReceived: value.paymentReceived }
+        );
+      }
+    } catch (notifError) {
+      logger.error('Error sending payment received notification:', notifError.message);
+    }
+
     res.status(200).json({
       success: true,
       message: `Payment marked as ${value.paymentReceived ? 'received' : 'not received'} and order delivered successfully`,
@@ -1762,7 +1896,6 @@ const orderpesapalPayment = async (req, res) => {
     }
 
     //  Generate token
-    console.log("Pesapal Payment Token Generating...");
     const pesapalBaseUrl = process.env.PESAPAL_URL || "https://pay.pesapal.com";
     const authRes = await axios.post(
       `${pesapalBaseUrl}/v3/api/Auth/RequestToken`,
@@ -1939,12 +2072,10 @@ const pesapalCallbackHandler = async (req, res) => {
         }
       }
     );
-    console.log("Pesapal Payment Status----------------------:", paymentStatusRes);
 
     const paymentData = paymentStatusRes.data;
-    console.log("Pesapal Payment Status:", paymentData);
 
-    // 3️⃣ Find order by OrderMerchantReference (order.id or orderNumber) or by tracking ID
+    // Find order by OrderMerchantReference (order.id or orderNumber) or by tracking ID
     let order = null;
     
     if (OrderMerchantReference) {
@@ -2014,6 +2145,21 @@ const pesapalCallbackHandler = async (req, res) => {
         });
       }
 
+      // Send Firebase notification for payment success
+      try {
+        const customer = await User.findOne({ where: { email: order.customerEmail } });
+        if (customer && customer.fcmToken) {
+          await notificationService.sendToDevice(
+            customer.fcmToken,
+            'Payment Successful!',
+            `Payment for Order #${order.orderNumber} has been confirmed. Your order is being processed.`,
+            { type: 'PAYMENT_SUCCESS', orderId: order.id, orderNumber: order.orderNumber }
+          );
+        }
+      } catch (notifError) {
+        logger.error('Error sending payment success notification:', notifError.message);
+      }
+
     } else if (paymentStatus === "FAILED" || paymentStatus === "CANCELLED" || paymentStatus === "REJECTED") {
       // Payment failed
       updateData.paymentStatus = "failed";
@@ -2035,6 +2181,21 @@ const pesapalCallbackHandler = async (req, res) => {
           customerEmail: order.customerEmail,
           agencyId: order.agencyId
         });
+      }
+
+      // Send Firebase notification for payment failure
+      try {
+        const customer = await User.findOne({ where: { email: order.customerEmail } });
+        if (customer && customer.fcmToken) {
+          await notificationService.sendToDevice(
+            customer.fcmToken,
+            'Payment Failed',
+            `Payment for Order #${order.orderNumber} failed. Please try again.`,
+            { type: 'PAYMENT_FAILED', orderId: order.id, orderNumber: order.orderNumber }
+          );
+        }
+      } catch (notifError) {
+        logger.error('Error sending payment failed notification:', notifError.message);
       }
 
     } else if (paymentStatus === "PENDING" || paymentStatus === "INPROGRESS") {
