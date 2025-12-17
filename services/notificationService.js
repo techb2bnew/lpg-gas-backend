@@ -86,8 +86,8 @@ class NotificationService {
         return { success: false, error: 'Firebase not initialized' };
       }
 
-      // Filter out null/undefined tokens
-      const validTokens = fcmTokens.filter(token => token && token.trim());
+      // Filter out null/undefined/empty tokens and ensure uniqueness
+      const validTokens = [...new Set(fcmTokens.filter(token => token && token.trim()))];
       if (validTokens.length === 0) {
         return { success: false, error: 'No valid FCM tokens provided' };
       }
@@ -116,25 +116,51 @@ class NotificationService {
       };
 
       const response = await messaging.sendEachForMulticast(message);
-      
+
       logger.info(`Notifications sent: ${response.successCount} success, ${response.failureCount} failures`);
-      
-      // Collect failed tokens
+
+      // Collect failed tokens with detailed errors
       const failedTokens = [];
+      const invalidTokens = [];
+      const otherErrors = [];
       response.responses.forEach((resp, idx) => {
         if (!resp.success) {
-          failedTokens.push({
+          const err = resp.error || {};
+          const detail = {
             token: validTokens[idx],
-            error: resp.error?.message || 'Unknown error'
-          });
+            code: err.code || null,
+            message: err.message || 'Unknown error'
+          };
+          failedTokens.push(detail);
+
+          // Track invalid/expired tokens separately so callers can prune them
+          if (
+            detail.code === 'messaging/registration-token-not-registered' ||
+            detail.code === 'messaging/invalid-argument' ||
+            detail.code === 'messaging/invalid-registration-token'
+          ) {
+            invalidTokens.push(detail);
+          } else {
+            otherErrors.push(detail);
+          }
         }
       });
 
+      if (invalidTokens.length > 0) {
+        logger.warn('Prune invalid FCM tokens:', invalidTokens);
+      }
+
+      if (otherErrors.length > 0) {
+        logger.warn('Notification failures detail:', otherErrors);
+      }
+
       return {
-        success: true,
+        success: response.successCount > 0,
         successCount: response.successCount,
         failureCount: response.failureCount,
-        failedTokens
+        failedTokens,
+        invalidTokens,
+        otherErrors
       };
     } catch (error) {
       logger.error('Error sending multiple notifications:', error.message);
