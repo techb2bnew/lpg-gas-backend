@@ -99,7 +99,14 @@ const createAgent = async (req, res, next) => {
           agencyOwner.fcmToken,
           'New Delivery Agent Added! 🚚',
           `${agent.name} has been added as a delivery agent.`,
-          { type: 'AGENT_CREATED', agentId: agent.id, agentName: agent.name }
+          { type: 'AGENT_CREATED', agentId: agent.id, agentName: agent.name },
+          {
+            recipientType: 'agency',
+            recipientId: agent.agencyId,
+            agencyId: agent.agencyId,
+            agentId: agent.id,
+            notificationType: 'AGENT_STATUS'
+          }
         );
       }
     } catch (notifError) {
@@ -287,7 +294,14 @@ const updateAgent = async (req, res, next) => {
           agent.fcmToken,
           'Profile Updated',
           'Your delivery agent profile has been updated.',
-          { type: 'AGENT_PROFILE_UPDATED', agentId: agent.id }
+          { type: 'AGENT_PROFILE_UPDATED', agentId: agent.id },
+          {
+            recipientType: 'agent',
+            recipientId: agent.id,
+            agencyId: agent.agencyId,
+            agentId: agent.id,
+            notificationType: 'AGENT_STATUS'
+          }
         );
       }
     } catch (notifError) {
@@ -330,7 +344,14 @@ const deleteAgent = async (req, res, next) => {
           agent.fcmToken,
           'Account Removed',
           'Your delivery agent account has been removed from the system.',
-          { type: 'AGENT_DELETED', agentId: agent.id }
+          { type: 'AGENT_DELETED', agentId: agent.id },
+          {
+            recipientType: 'agent',
+            recipientId: agent.id,
+            agencyId: agent.agencyId,
+            agentId: agent.id,
+            notificationType: 'AGENT_STATUS'
+          }
         );
       }
     } catch (notifError) {
@@ -406,7 +427,14 @@ const updateAgentStatus = async (req, res, next) => {
           agent.fcmToken,
           value.status === 'active' ? 'Account Activated! ✅' : 'Status Updated',
           statusMessages[value.status] || `Your status has been updated to ${value.status}.`,
-          { type: 'AGENT_STATUS_CHANGED', agentId: agent.id, status: value.status }
+          { type: 'AGENT_STATUS_CHANGED', agentId: agent.id, status: value.status },
+          {
+            recipientType: 'agent',
+            recipientId: agent.id,
+            agencyId: agent.agencyId,
+            agentId: agent.id,
+            notificationType: 'AGENT_STATUS'
+          }
         );
       }
     } catch (notifError) {

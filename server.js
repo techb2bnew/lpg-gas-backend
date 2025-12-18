@@ -4,7 +4,7 @@ const logger = require('./utils/logger');
 const { Server } = require('socket.io');
 const http = require('http');
 const socketService = require('./services/socketService');
-const { initializeFirebase } = require('./config/firebase');
+const { initializeFirebase, initializeFirebaseDriver } = require('./config/firebase');
 
 const PORT = process.env.PORT || 5000;
 
@@ -30,6 +30,7 @@ socketService.initialize(io);
 // Initialize Firebase for push notifications
 initializeFirebase();
 
+initializeFirebaseDriver();
 // Make socket service available globally
 global.socketService = socketService;
 

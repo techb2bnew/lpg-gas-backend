@@ -76,7 +76,13 @@ const create = async (req, res, next) => {
           agencyOwner.fcmToken,
           'Delivery Charge Configured! 🚚',
           `Delivery charge set: ${chargeText} within ${deliveryCharge.deliveryRadius}km radius.`,
-          { type: 'DELIVERY_CHARGE_CREATED', chargeId: deliveryCharge.id, agencyId: deliveryCharge.agencyId }
+          { type: 'DELIVERY_CHARGE_CREATED', chargeId: deliveryCharge.id, agencyId: deliveryCharge.agencyId },
+          {
+            recipientType: 'agency',
+            recipientId: deliveryCharge.agencyId,
+            agencyId: deliveryCharge.agencyId,
+            notificationType: 'CUSTOM'
+          }
         );
       }
     } catch (notifError) {
@@ -253,7 +259,13 @@ const update = async (req, res, next) => {
           agencyOwner.fcmToken,
           'Delivery Charge Updated',
           `Delivery charge updated: ${chargeText} within ${deliveryCharge.deliveryRadius}km radius.`,
-          { type: 'DELIVERY_CHARGE_UPDATED', chargeId: deliveryCharge.id, agencyId: deliveryCharge.agencyId }
+          { type: 'DELIVERY_CHARGE_UPDATED', chargeId: deliveryCharge.id, agencyId: deliveryCharge.agencyId },
+          {
+            recipientType: 'agency',
+            recipientId: deliveryCharge.agencyId,
+            agencyId: deliveryCharge.agencyId,
+            notificationType: 'CUSTOM'
+          }
         );
       }
     } catch (notifError) {
@@ -299,7 +311,13 @@ const deleteCharge = async (req, res, next) => {
           agencyOwner.fcmToken,
           'Delivery Charge Removed',
           'Your delivery charge configuration has been deleted.',
-          { type: 'DELIVERY_CHARGE_DELETED', agencyId: deliveryCharge.agencyId }
+          { type: 'DELIVERY_CHARGE_DELETED', agencyId: deliveryCharge.agencyId },
+          {
+            recipientType: 'agency',
+            recipientId: deliveryCharge.agencyId,
+            agencyId: deliveryCharge.agencyId,
+            notificationType: 'CUSTOM'
+          }
         );
       }
     } catch (notifError) {

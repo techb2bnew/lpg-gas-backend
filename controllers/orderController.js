@@ -1,4 +1,4 @@
-const { Order, DeliveryAgent, Product, Tax, PlatformCharge, Coupon, DeliveryCharge, Agency, User, AgencyOwner } = require('../models');
+const { Order, DeliveryAgent, Product, Tax, PlatformCharge, Coupon, DeliveryCharge, Agency, User, AgencyOwner, Notification, AgencyInventory } = require('../models');
 const { createOrder, updateOrderStatus, assignAgent, sendOTP, verifyOTP, cancelOrder, returnOrder, markPaymentReceived } = require('../validations/orderValidation');
 const { createError } = require('../utils/errorHandler');
 const { sendEmail } = require('../config/email');
@@ -59,7 +59,6 @@ const createOrderHandler = async (req, res, next) => {
     }
 
     // Verify each item's price from database and calculate correct amounts
-    const AgencyInventory = require('../models/AgencyInventory');
     const agencyId = value.agencyId;
 
     let calculatedSubtotal = 0;
@@ -296,7 +295,6 @@ const createOrderHandler = async (req, res, next) => {
     const orderNumber = generateOrderNumber();
 
     // Verify the agency exists and is active
-    const Agency = require('../models/Agency');
     const agency = await Agency.findByPk(agencyId);
     if (!agency) {
       return next(createError(404, `Agency with ID ${agencyId} not found`));
@@ -355,6 +353,9 @@ const createOrderHandler = async (req, res, next) => {
       agencyId: agencyId
     });
 
+
+  
+
     // Reduce stock in agency inventory using validated items
     for (const item of validatedItems) {
       // Get current inventory to check if we need to update variants
@@ -408,18 +409,65 @@ const createOrderHandler = async (req, res, next) => {
       });
     }
 
-    // Send Firebase notification to agency owner about new order
+    // Create notifications for customer and agency owner
     try {
-      const agencyOwner = await AgencyOwner.findOne({ where: { agencyId: agencyId } });
-      if (agencyOwner && agencyOwner.fcmToken) {
-        await notificationService.sendNewOrderToAgency(agencyOwner.fcmToken, {
-          id: order.id,
-          orderNumber: order.orderNumber,
-          total: order.totalAmount
+      // 1. Create notification for customer (who created the order)
+      const customer = await User.findOne({ where: { email: order.customerEmail } });
+      if (customer) {
+        await Notification.create({
+          userId: customer.id,
+          title: 'Order Placed Successfully!',
+          body: `Your order #${order.orderNumber} has been placed successfully. Total amount: ₹${order.totalAmount}`,
+          notificationType: 'ORDER_STATUS',
+          data: {
+            type: 'ORDER_STATUS',
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            status: 'pending'
+          },
+          orderId: order.id
         });
       }
+
+      // 2. Create notification for agency owner
+      const agencyOwner = await AgencyOwner.findOne({ where: { agencyId: agencyId } });
+      if (agencyOwner) {
+        // Find agency owner's user account by email
+        const agencyOwnerUser = await User.findOne({ where: { email: agencyOwner.email } });
+        if (agencyOwnerUser) {
+          await Notification.create({
+            userId: agencyOwnerUser.id,
+            title: 'New Order Received! ',
+            body: `New order #${order.orderNumber} received from ${order.customerName}. Total: ₹${order.totalAmount}`,
+            notificationType: 'NEW_ORDER',
+            data: {
+              type: 'NEW_ORDER',
+              orderId: order.id,
+              orderNumber: order.orderNumber,
+              total: order.totalAmount
+            },
+            orderId: order.id
+          });
+        }
+
+        // Send Firebase notification to agency owner about new order
+        if (agencyOwner.fcmToken) {
+          await notificationService.sendNewOrderToAgency(agencyOwner.fcmToken, {
+            id: order.id,
+            orderNumber: order.orderNumber,
+            total: order.totalAmount,
+            agencyId: agencyId
+          }, {
+            recipientType: 'agency',
+            recipientId: agencyOwnerUser ? agencyOwnerUser.id : null,
+            orderId: order.id,
+            agencyId: agencyId,
+            notificationType: 'NEW_ORDER'
+          });
+        }
+      }
     } catch (notifError) {
-      logger.error('Error sending new order notification:', notifError.message);
+      logger.error('Error creating notifications:', notifError.message);
     }
 
     res.status(201).json({
@@ -800,10 +848,27 @@ const assignAgentHandler = async (req, res, next) => {
     // Send Firebase notification to delivery agent about new assignment
     try {
       if (agent.fcmToken) {
+        // Find agent's user account by email or phone
+        const agentUser = await User.findOne({ 
+          where: { 
+            [Op.or]: [
+              { email: agent.email },
+              { phone: agent.phone }
+            ]
+          } 
+        });
+
         await notificationService.sendOrderAssignedToAgent(agent.fcmToken, {
           id: order.id,
           orderNumber: order.orderNumber,
           deliveryAddress: order.customerAddress
+        }, {
+          recipientType: 'agent',
+          recipientId: agentUser ? agentUser.id : null,
+          orderId: order.id,
+          agencyId: order.agencyId,
+          agentId: agent.id,
+          notificationType: 'ORDER_ASSIGNED'
         });
       }
       
@@ -813,7 +878,15 @@ const assignAgentHandler = async (req, res, next) => {
         await notificationService.sendOrderStatusNotification(customer.fcmToken, {
           id: order.id,
           orderNumber: order.orderNumber,
-          status: 'assigned'
+          status: 'assigned',
+          userId: customer.id,
+          agencyId: order.agencyId
+        }, {
+          recipientType: 'user',
+          recipientId: customer.id,
+          orderId: order.id,
+          agencyId: order.agencyId,
+          notificationType: 'ORDER_STATUS'
         });
       }
     } catch (notifError) {

@@ -1,9 +1,8 @@
-const { Product, AgencyInventory, Agency, User, AgencyOwner } = require('../models');
+const { Product, AgencyInventory, Agency } = require('../models');
 const { createProduct, updateProduct, updateStatus, agencyInventorySchema } = require('../validations/productValidation');
 const { createError } = require('../utils/errorHandler');
 const logger = require('../utils/logger');
 const { Op, Sequelize } = require('sequelize');
-const notificationService = require('../services/notificationService');
 
 // Create a new product (Admin only)
 const createProductHandler = async (req, res, next) => {
@@ -83,28 +82,6 @@ const createProductHandler = async (req, res, next) => {
         status: product.status,
         createdBy: req.user.email || 'admin'
       });
-    }
-
-    // Send push notification to all customers and agency owners about new product
-    try {
-      const customers = await User.findAll({ where: { role: 'customer', isBlocked: false }, attributes: ['fcmToken'] });
-      const agencyOwners = await AgencyOwner.findAll({ where: { isActive: true }, attributes: ['fcmToken'] });
-      
-      const allFCMTokens = [
-        ...customers.map(c => c.fcmToken),
-        ...agencyOwners.map(ao => ao.fcmToken)
-      ].filter(Boolean);
-
-      if (allFCMTokens.length > 0) {
-        notificationService.sendToMultipleDevices(
-          allFCMTokens,
-          'New Product Added! 🆕',
-          `Check out "${product.productName}" - now available in our catalog!`,
-          { type: 'PRODUCT_ADDED', productId: product.id, productName: product.productName, category: product.category }
-        ).catch(err => logger.error('Error sending new product notification:', err));
-      }
-    } catch (notifError) {
-      logger.error('Error sending new product notification:', notifError);
     }
 
     res.status(201).json({
@@ -460,34 +437,6 @@ const updateProductHandler = async (req, res, next) => {
       });
     }
 
-    // Send push notification to agency owners who have this product in inventory
-    try {
-      const agenciesWithProduct = await AgencyInventory.findAll({
-        where: { productId: id },
-        include: [{ model: Agency, as: 'Agency', attributes: ['id'] }]
-      });
-
-      const agencyIds = agenciesWithProduct.map(ai => ai.Agency.id);
-      if (agencyIds.length > 0) {
-        const agencyOwners = await AgencyOwner.findAll({
-          where: { agencyId: { [Op.in]: agencyIds }, isActive: true },
-          attributes: ['fcmToken']
-        });
-
-        const fcmTokens = agencyOwners.map(ao => ao.fcmToken).filter(Boolean);
-        if (fcmTokens.length > 0) {
-          notificationService.sendToMultipleDevices(
-            fcmTokens,
-            'Product Updated! 🔄',
-            `"${product.productName}" has been updated. Check your inventory for details.`,
-            { type: 'PRODUCT_UPDATED', productId: product.id, productName: product.productName }
-          ).catch(err => logger.error('Error sending product update notification:', err));
-        }
-      }
-    } catch (notifError) {
-      logger.error('Error sending product update notification:', notifError);
-    }
-
     res.status(200).json({
       success: true,
       message: 'Product updated successfully',
@@ -576,56 +525,6 @@ const updateProductStatus = async (req, res, next) => {
         status: value.status,
         affectedAgencies: agenciesWithProduct.length
       });
-    }
-
-    // Send push notification about product status change
-    try {
-      // Get all agencies that have this product
-      const agenciesWithProduct = await AgencyInventory.findAll({
-        where: { productId: id },
-        include: [{ model: Agency, as: 'Agency', attributes: ['id'] }]
-      });
-
-      const agencyIds = agenciesWithProduct.map(ai => ai.Agency.id);
-      
-      if (agencyIds.length > 0) {
-        const agencyOwners = await AgencyOwner.findAll({
-          where: { agencyId: { [Op.in]: agencyIds }, isActive: true },
-          attributes: ['fcmToken']
-        });
-
-        const fcmTokens = agencyOwners.map(ao => ao.fcmToken).filter(Boolean);
-        if (fcmTokens.length > 0) {
-          const statusEmoji = value.status === 'active' ? '✅' : '⚠️';
-          const statusMessage = value.status === 'active' 
-            ? `"${product.productName}" is now active and available for sale.`
-            : `"${product.productName}" has been deactivated. Please check your inventory.`;
-          
-          notificationService.sendToMultipleDevices(
-            fcmTokens,
-            `Product Status Changed ${statusEmoji}`,
-            statusMessage,
-            { type: 'PRODUCT_STATUS_CHANGED', productId: product.id, productName: product.productName, status: value.status }
-          ).catch(err => logger.error('Error sending product status notification:', err));
-        }
-      }
-
-      // If product is activated, notify customers too
-      if (value.status === 'active') {
-        const customers = await User.findAll({ where: { role: 'customer', isBlocked: false }, attributes: ['fcmToken'] });
-        const customerTokens = customers.map(c => c.fcmToken).filter(Boolean);
-        
-        if (customerTokens.length > 0) {
-          notificationService.sendToMultipleDevices(
-            customerTokens,
-            'Product Now Available! 🎉',
-            `"${product.productName}" is now available for purchase!`,
-            { type: 'PRODUCT_AVAILABLE', productId: product.id, productName: product.productName }
-          ).catch(err => logger.error('Error sending product availability notification:', err));
-        }
-      }
-    } catch (notifError) {
-      logger.error('Error sending product status notification:', notifError);
     }
 
     res.status(200).json({
@@ -939,21 +838,6 @@ const addProductToAgency = async (req, res, next) => {
       });
     }
 
-    // Send push notification to agency owner about new product in inventory
-    try {
-      const agencyOwner = await AgencyOwner.findOne({ where: { agencyId: agencyId } });
-      if (agencyOwner && agencyOwner.fcmToken) {
-        notificationService.sendToDevice(
-          agencyOwner.fcmToken,
-          'New Product in Inventory! 📦',
-          `"${product.productName}" has been added to your agency inventory with stock: ${inventory.stock}.`,
-          { type: 'INVENTORY_PRODUCT_ADDED', productId: product.id, productName: product.productName, agencyId: agency.id, stock: inventory.stock }
-        ).catch(err => logger.error('Error sending inventory product added notification:', err));
-      }
-    } catch (notifError) {
-      logger.error('Error sending inventory product added notification:', notifError);
-    }
-
     res.status(201).json({
       success: true,
       message: 'Product added to agency inventory successfully',
@@ -1030,31 +914,6 @@ const updateAgencyInventory = async (req, res, next) => {
           lowStockThreshold: inventory.lowStockThreshold
         });
       }
-    }
-
-    // Send push notification to agency owner about inventory update
-    try {
-      const agencyOwner = await AgencyOwner.findOne({ where: { agencyId: agencyId } });
-      if (agencyOwner && agencyOwner.fcmToken) {
-        // Check if low stock alert needed
-        if (inventory.stock <= inventory.lowStockThreshold) {
-          notificationService.sendToDevice(
-            agencyOwner.fcmToken,
-            'Low Stock Alert! ⚠️',
-            `"${inventory.Product.productName}" is running low with only ${inventory.stock} units left.`,
-            { type: 'LOW_STOCK_ALERT', productId: inventory.Product.id, productName: inventory.Product.productName, agencyId: inventory.Agency.id, stock: inventory.stock }
-          ).catch(err => logger.error('Error sending low stock notification:', err));
-        } else {
-          notificationService.sendToDevice(
-            agencyOwner.fcmToken,
-            'Inventory Updated! 📦',
-            `"${inventory.Product.productName}" inventory updated. Stock: ${inventory.stock}.`,
-            { type: 'INVENTORY_UPDATED', productId: inventory.Product.id, productName: inventory.Product.productName, agencyId: inventory.Agency.id, stock: inventory.stock }
-          ).catch(err => logger.error('Error sending inventory update notification:', err));
-        }
-      }
-    } catch (notifError) {
-      logger.error('Error sending inventory update notification:', notifError);
     }
 
     res.status(200).json({
@@ -1154,36 +1013,6 @@ const adminUpdateAgencyStock = async (req, res, next) => {
       }
     }
 
-    // Send push notification to agency owner about admin stock update
-    try {
-      const agencyOwner = await AgencyOwner.findOne({ where: { agencyId: agencyId } });
-      if (agencyOwner && agencyOwner.fcmToken) {
-        // Check for low stock variants
-        let hasLowStock = false;
-        if (inventory.agencyVariants && inventory.agencyVariants.length > 0) {
-          hasLowStock = inventory.agencyVariants.some(v => v.stock <= inventory.lowStockThreshold);
-        }
-
-        if (hasLowStock) {
-          notificationService.sendToDevice(
-            agencyOwner.fcmToken,
-            'Admin Stock Update - Low Stock! ⚠️',
-            `"${inventory.Product.productName}" stock updated by admin. Some variants are running low.`,
-            { type: 'ADMIN_STOCK_UPDATE_LOW', productId: inventory.Product.id, productName: inventory.Product.productName, agencyId: inventory.Agency.id }
-          ).catch(err => logger.error('Error sending admin stock update notification:', err));
-        } else {
-          notificationService.sendToDevice(
-            agencyOwner.fcmToken,
-            'Admin Stock Update! 📦',
-            `"${inventory.Product.productName}" inventory has been updated by admin.`,
-            { type: 'ADMIN_STOCK_UPDATE', productId: inventory.Product.id, productName: inventory.Product.productName, agencyId: inventory.Agency.id }
-          ).catch(err => logger.error('Error sending admin stock update notification:', err));
-        }
-      }
-    } catch (notifError) {
-      logger.error('Error sending admin stock update notification:', notifError);
-    }
-
     res.status(200).json({
       success: true,
       message: `Agency stock updated successfully by admin`,
@@ -1242,21 +1071,6 @@ const removeProductFromAgency = async (req, res, next) => {
     await inventory.destroy();
 
     logger.info(`Product removed from agency inventory: ${productName} -> ${agencyName}`);
-
-    // Send push notification to agency owner about product removal
-    try {
-      const agencyOwner = await AgencyOwner.findOne({ where: { agencyId: deletedAgencyId } });
-      if (agencyOwner && agencyOwner.fcmToken) {
-        notificationService.sendToDevice(
-          agencyOwner.fcmToken,
-          'Product Removed from Inventory! 🗑️',
-          `"${productName}" has been removed from your agency inventory.`,
-          { type: 'INVENTORY_PRODUCT_REMOVED', productId: removedProductId, productName: productName, agencyId: deletedAgencyId }
-        ).catch(err => logger.error('Error sending product removal notification:', err));
-      }
-    } catch (notifError) {
-      logger.error('Error sending product removal notification:', notifError);
-    }
 
     res.status(200).json({
       success: true,

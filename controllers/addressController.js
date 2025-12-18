@@ -43,7 +43,12 @@ const addAddressHandler = async (req, res, next) => {
           user.fcmToken,
           'Address Added',
           `New address "${value.title || 'Address'}" has been added to your profile.`,
-          { type: 'ADDRESS_ADDED', addressId: newAddress.id }
+          { type: 'ADDRESS_ADDED', addressId: newAddress.id },
+          {
+            recipientType: 'user',
+            recipientId: user.id,
+            notificationType: 'CUSTOM'
+          }
         );
       }
     } catch (notifError) {
@@ -225,7 +230,12 @@ const deleteAddressHandler = async (req, res, next) => {
           user.fcmToken,
           'Address Deleted',
           `Address "${addressToDelete?.title || 'Address'}" has been removed from your profile.`,
-          { type: 'ADDRESS_DELETED', addressId: addressId }
+          { type: 'ADDRESS_DELETED', addressId: addressId },
+          {
+            recipientType: 'user',
+            recipientId: user.id,
+            notificationType: 'CUSTOM'
+          }
         );
       }
     } catch (notifError) {
@@ -289,7 +299,12 @@ const updateAllAddressesHandler = async (req, res, next) => {
           user.fcmToken,
           'Addresses Updated',
           `Your addresses have been updated. Total addresses: ${user.addresses.length}`,
-          { type: 'ADDRESSES_BULK_UPDATE', count: user.addresses.length }
+          { type: 'ADDRESSES_BULK_UPDATE', count: user.addresses.length },
+          {
+            recipientType: 'user',
+            recipientId: user.id,
+            notificationType: 'CUSTOM'
+          }
         );
       }
     } catch (notifError) {

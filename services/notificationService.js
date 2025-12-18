@@ -1,5 +1,6 @@
-const { getMessaging } = require('../config/firebase');
+const { getMessaging, getMessagingDriver } = require('../config/firebase');
 const logger = require('../utils/logger');
+const { Notification } = require('../models');
 
 class NotificationService {
   constructor() {
@@ -12,6 +13,13 @@ class NotificationService {
       this.messaging = getMessaging();
     }
     return this.messaging;
+  }
+
+  getMessagingInstanceDriver() {
+    if (!this.messagingDriver) {
+      this.messagingDriver = getMessagingDriver();
+    }
+    return this.messagingDriver;
   }
 
   /**
@@ -63,9 +71,21 @@ class NotificationService {
       logger.info(`Notification sent successfully: ${response}`);
       return { success: true, messageId: response };
     } catch (error) {
-      // Only log non-token errors (skip invalid token errors as they're common)
-      if (error.code !== 'messaging/invalid-argument' && error.code !== 'messaging/registration-token-not-registered') {
-        logger.error('FCM send error:', error.code, error.message);
+      // Skip logging for common token errors (they're expected)
+      const skipErrorCodes = [
+        'messaging/invalid-argument',
+        'messaging/registration-token-not-registered',
+        'messaging/invalid-registration-token'
+      ];
+      
+      if (!skipErrorCodes.includes(error.code)) {
+        logger.error('FCM send error:', {
+          code: error.code,
+          message: error.message,
+          token: fcmToken ? `${fcmToken.substring(0, 20)}...` : 'no token'
+        });
+      } else {
+        logger.debug(`FCM token error (skipped): ${error.code}`);
       }
       return { success: false, error: error.message, code: error.code };
     }
@@ -317,19 +337,147 @@ class NotificationService {
     });
   }
 
+  async sendToDeviceDriver(fcmToken, title, body, data = {}, options = {}) {
+    try {
+      const messaging = this.getMessagingInstanceDriver();
+      if (!messaging) {
+        logger.warn('Driver Firebase messaging not initialized. Notification not sent.');
+        return { success: false, error: 'Driver Firebase not initialized' };
+      }
+
+      if (!fcmToken) {
+        return { success: false, error: 'No FCM token provided' };
+      }
+
+      const message = {
+        token: fcmToken,
+        notification: {
+          title,
+          body
+        },
+        data: this.sanitizeData(data),
+        android: {
+          priority: 'high',
+          notification: {
+            sound: 'default',
+            channelId: options.channelId || 'default',
+            clickAction: options.clickAction || 'FLUTTER_NOTIFICATION_CLICK'
+          }
+        },
+        apns: {
+          payload: {
+            aps: {
+              sound: 'default',
+              badge: options.badge || 1
+            }
+          }
+        }
+      };
+
+      const response = await messaging.send(message);
+      logger.info(`Driver notification sent successfully: ${response}`);
+      return { success: true, messageId: response };
+    } catch (error) {
+
+     // Handle SenderId mismatch - this means token belongs to different Firebase project
+      if (error.code === 'messaging/mismatched-credential') {
+        logger.warn('Driver Firebase SenderId mismatch - token belongs to different Firebase project');
+        return { success: false, error: error.message, code: error.code };
+      }
+      
+      // Only log non-token errors (skip invalid token errors as they're common)
+      if (error.code !== 'messaging/invalid-argument' && 
+          error.code !== 'messaging/registration-token-not-registered' &&
+          error.code !== 'messaging/invalid-registration-token') {
+        logger.error('Driver notification FCM send error:', {
+          code: error.code,
+          message: error.message
+        });
+      }
+      return { success: false, error: error.message, code: error.code };
+    }
+  }
+
+
   /**
    * Send order assignment notification to delivery agent
    */
-  async sendOrderAssignedToAgent(fcmToken, orderData) {
+  async sendOrderAssignedToAgent(fcmToken, orderData, options = {}) {
     const title = 'New Delivery Assigned!';
     const body = `Order #${orderData.orderNumber || orderData.id?.substring(0, 8)} - ${orderData.deliveryAddress || 'Check app for details'}`;
     
-    return this.sendToDevice(fcmToken, title, body, {
+    const data = {
       type: 'ORDER_ASSIGNED',
       orderId: orderData.id,
       orderNumber: orderData.orderNumber || '',
       deliveryAddress: orderData.deliveryAddress || ''
-    });
+    };
+
+    // Try driver Firebase first, fallback to regular Firebase
+    try {
+      const driverResult = await this.sendToDeviceDriver(fcmToken, title, body, data, options);
+
+      if (driverResult.success) {
+        // Save notification if userId provided
+        if (options.recipientId) {
+          await this.saveUserNotification({
+            userId: options.recipientId,
+            title,
+            body,
+            notificationType: 'ORDER_ASSIGNED',
+            data,
+            orderId: orderData.id
+          });
+        }
+        return driverResult;
+      }
+      
+      // If driver Firebase failed due to SenderId mismatch, use regular Firebase
+      if (driverResult.code === 'messaging/mismatched-credential') {
+        logger.warn('Driver Firebase SenderId mismatch, using regular Firebase for agent notification');
+      }
+    } catch (error) {
+      // If error is SenderId mismatch, fallback to regular Firebase
+      if (error.code === 'messaging/mismatched-credential') {
+        logger.warn('Driver Firebase SenderId mismatch, using regular Firebase for agent notification');
+      } else {
+        logger.warn('Driver Firebase failed, trying regular Firebase:', error.message);
+      }
+    }
+
+    // Fallback to regular Firebase
+    logger.info('Using regular Firebase for agent notification');
+    const result = await this.sendToDevice(fcmToken, title, body, data, options);
+    
+    // Log result for debugging
+    if (!result.success) {
+      logger.warn('Regular Firebase also failed:', {
+        error: result.error,
+        code: result.code,
+        orderNumber: orderData.orderNumber
+      });
+    } else {
+      logger.info('Agent notification sent successfully via regular Firebase');
+    }
+    
+    // Save notification if userId provided (even if Firebase failed, save for in-app notification)
+    if (options.recipientId) {
+      try {
+        await this.saveUserNotification({
+          userId: options.recipientId,
+          title,
+          body,
+          notificationType: 'ORDER_ASSIGNED',
+          data,
+          orderId: orderData.id
+        });
+        logger.info('Notification saved to database for user:', options.recipientId);
+      } catch (saveError) {
+        logger.error('Error saving user notification:', saveError.message);
+      }
+    }
+    
+    return result;
   }
 
   /**
@@ -374,6 +522,34 @@ class NotificationService {
       agentName: agentData.agentName,
       status: agentData.status
     });
+  }
+
+  /**
+   * Save user notification to database
+   * @param {object} notificationData - Notification data to save
+   */
+  async saveUserNotification(notificationData) {
+    try {
+      if (!notificationData.userId) {
+        logger.warn('Cannot save notification: userId is required');
+        return null;
+      }
+
+      const notification = await Notification.create({
+        userId: notificationData.userId,
+        title: notificationData.title,
+        body: notificationData.body,
+        notificationType: notificationData.notificationType || 'OTHER',
+        data: notificationData.data || {},
+        orderId: notificationData.orderId || null
+      });
+
+      logger.info(`User notification saved: ${notification.id}`);
+      return notification;
+    } catch (error) {
+      logger.error('Error saving user notification:', error.message);
+      return null;
+    }
   }
 
   /**

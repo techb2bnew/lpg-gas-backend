@@ -14,6 +14,7 @@ const PlatformCharge = require('./PlatformCharge');
 const Coupon = require('./Coupon');
 const DeliveryCharge = require('./DeliveryCharge');
 const Banner = require('./Banner');
+const Notification = require('./Notification');
 
 // Define associations
 Order.belongsTo(DeliveryAgent, { 
@@ -103,6 +104,28 @@ Agency.hasOne(DeliveryCharge, {
   as: 'DeliveryCharge'
 });
 
+// User and Notification associations
+User.hasMany(Notification, {
+  foreignKey: 'userId',
+  as: 'Notifications'
+});
+
+Notification.belongsTo(User, {
+  foreignKey: 'userId',
+  as: 'User'
+});
+
+// Order and Notification associations
+Order.hasMany(Notification, {
+  foreignKey: 'orderId',
+  as: 'Notifications'
+});
+
+Notification.belongsTo(Order, {
+  foreignKey: 'orderId',
+  as: 'Order'
+});
+
 module.exports = {
   User,
   DeliveryAgent,
@@ -119,5 +142,6 @@ module.exports = {
   PlatformCharge,
   Coupon,
   DeliveryCharge,
-  Banner
+  Banner,
+  Notification
 };

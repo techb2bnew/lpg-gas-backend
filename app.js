@@ -111,6 +111,7 @@ try {
 
 app.use('/api/orders', require('./routes/order'));
 app.use('/api/addresses', require('./routes/address'));
+app.use('/api/notifications', require('./routes/notification'));
 app.use('/api/agencies', require('./routes/agency'));
 app.use('/api/dashboard', require('./routes/dashboard'));
 

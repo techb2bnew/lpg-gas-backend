@@ -51,7 +51,11 @@ exports.addOrUpdatePlatformCharge = async (req, res, next) => {
           ownerTokens,
           'Platform Charge Updated 💰',
           `Platform charge has been set to $${platformCharge.amount || 0} per order.`,
-          { type: 'PLATFORM_CHARGE_UPDATED', chargeId: platformCharge.id, amount: platformCharge.amount }
+          { type: 'PLATFORM_CHARGE_UPDATED', chargeId: platformCharge.id, amount: platformCharge.amount },
+          {
+            recipientType: 'multiple',
+            notificationType: 'CUSTOM'
+          }
         );
         logger.info(`Platform charge notification sent to ${ownerTokens.length} agency owners`);
       }
@@ -139,7 +143,11 @@ exports.deletePlatformCharge = async (req, res, next) => {
           ownerTokens,
           'Platform Charge Removed',
           'Platform charge has been removed. No platform fee will be applied to orders.',
-          { type: 'PLATFORM_CHARGE_DELETED' }
+          { type: 'PLATFORM_CHARGE_DELETED' },
+          {
+            recipientType: 'multiple',
+            notificationType: 'CUSTOM'
+          }
         );
       }
     } catch (notifError) {

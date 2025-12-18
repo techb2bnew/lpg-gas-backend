@@ -90,7 +90,12 @@ exports.addCoupon = async (req, res, next) => {
           customerTokens,
           'New Coupon Available! 🎁',
           `Use code "${coupon.code}" to get ${discountText} on your next order!`,
-          { type: 'COUPON_CREATED', couponId: coupon.id, couponCode: coupon.code, agencyId: coupon.agencyId }
+          { type: 'COUPON_CREATED', couponId: coupon.id, couponCode: coupon.code, agencyId: coupon.agencyId },
+          {
+            recipientType: 'multiple',
+            agencyId: coupon.agencyId,
+            notificationType: 'PROMOTION'
+          }
         );
         logger.info(`Coupon notification sent to ${customerTokens.length} customers`);
       }
@@ -302,7 +307,12 @@ exports.toggleCouponStatus = async (req, res, next) => {
             customerTokens,
             'Coupon Activated! 🎉',
             `Coupon "${coupon.code}" is now active! Get ${discountText} on your order.`,
-            { type: 'COUPON_ACTIVATED', couponId: coupon.id, couponCode: coupon.code, agencyId: coupon.agencyId }
+            { type: 'COUPON_ACTIVATED', couponId: coupon.id, couponCode: coupon.code, agencyId: coupon.agencyId },
+            {
+              recipientType: 'multiple',
+              agencyId: coupon.agencyId,
+              notificationType: 'PROMOTION'
+            }
           );
         }
       } catch (notifError) {

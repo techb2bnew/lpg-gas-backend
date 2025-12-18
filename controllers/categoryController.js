@@ -60,7 +60,11 @@ const createCategory = async (req, res, next) => {
           allTokens,
           'New Category Added! 🆕',
           `Check out our new category: "${category.name}"`,
-          { type: 'CATEGORY_CREATED', categoryId: category.id, categoryName: category.name }
+          { type: 'CATEGORY_CREATED', categoryId: category.id, categoryName: category.name },
+          {
+            recipientType: 'multiple',
+            notificationType: 'CUSTOM'
+          }
         );
         logger.info(`Category notification sent to ${allTokens.length} users`);
       }
@@ -272,7 +276,11 @@ const updateCategoryStatus = async (req, res, next) => {
             customerTokens,
             'Category Now Available! ✅',
             `"${category.name}" category is now active. Explore products!`,
-            { type: 'CATEGORY_ACTIVATED', categoryId: category.id, categoryName: category.name }
+            { type: 'CATEGORY_ACTIVATED', categoryId: category.id, categoryName: category.name },
+            {
+              recipientType: 'multiple',
+              notificationType: 'CUSTOM'
+            }
           );
         }
       } catch (notifError) {

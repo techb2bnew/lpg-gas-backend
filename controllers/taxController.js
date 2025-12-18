@@ -67,7 +67,11 @@ exports.addOrUpdateTax = async (req, res, next) => {
           allFCMTokens,
           'Tax Update! 💰',
           `Tax configuration has been updated to ${taxText}.`,
-          { type: 'TAX_UPDATED', taxId: tax.id, percentage: tax.percentage || 0, fixedAmount: tax.fixedAmount || 0 }
+          { type: 'TAX_UPDATED', taxId: tax.id, percentage: tax.percentage || 0, fixedAmount: tax.fixedAmount || 0 },
+          {
+            recipientType: 'multiple',
+            notificationType: 'CUSTOM'
+          }
         ).catch(err => logger.error('Error sending tax update notification:', err));
       }
     } catch (notifError) {
@@ -162,7 +166,11 @@ exports.deleteTax = async (req, res, next) => {
           allFCMTokens,
           'Tax Removed! ✅',
           'Tax charges have been removed from the platform.',
-          { type: 'TAX_REMOVED', taxId: taxData.id }
+          { type: 'TAX_REMOVED', taxId: taxData.id },
+          {
+            recipientType: 'multiple',
+            notificationType: 'CUSTOM'
+          }
         ).catch(err => logger.error('Error sending tax removal notification:', err));
       }
     } catch (notifError) {

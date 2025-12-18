@@ -254,7 +254,12 @@ const create = async (req, res, next) => {
             adminTokens,
             'New Agency Created!',
             `Agency "${agency.name}" has been created in ${agency.city}.`,
-            { type: 'AGENCY_CREATED', agencyId: agency.id, agencyName: agency.name }
+            { type: 'AGENCY_CREATED', agencyId: agency.id, agencyName: agency.name },
+            {
+              recipientType: 'multiple',
+              agencyId: agency.id,
+              notificationType: 'CUSTOM'
+            }
           );
         }
       } catch (notifError) {
@@ -394,7 +399,13 @@ const confirm = async (req, res, next) => {
             agencyOwner.fcmToken,
             'Agency Confirmed! 🎉',
             `Your agency "${agency.name}" has been confirmed and is now active.`,
-            { type: 'AGENCY_CONFIRMED', agencyId: agency.id, agencyName: agency.name }
+            { type: 'AGENCY_CONFIRMED', agencyId: agency.id, agencyName: agency.name },
+            {
+              recipientType: 'agency',
+              recipientId: agency.id,
+              agencyId: agency.id,
+              notificationType: 'CUSTOM'
+            }
           );
         }
       } catch (notifError) {
@@ -810,7 +821,13 @@ const update = async (req, res, next) => {
             agencyOwner.fcmToken,
             'Agency Updated',
             `Your agency "${agency.name}" profile has been updated by admin.`,
-            { type: 'AGENCY_UPDATED', agencyId: agency.id, agencyName: agency.name }
+            { type: 'AGENCY_UPDATED', agencyId: agency.id, agencyName: agency.name },
+            {
+              recipientType: 'agency',
+              recipientId: agency.id,
+              agencyId: agency.id,
+              notificationType: 'CUSTOM'
+            }
           );
         }
       } catch (notifError) {
@@ -867,7 +884,13 @@ const updateStatus = async (req, res, next) => {
             agencyOwner.fcmToken,
             status === 'active' ? 'Agency Activated! ✅' : 'Agency Deactivated ⚠️',
             statusMessage,
-            { type: 'AGENCY_STATUS_CHANGED', agencyId: agency.id, status: status }
+            { type: 'AGENCY_STATUS_CHANGED', agencyId: agency.id, status: status },
+            {
+              recipientType: 'agency',
+              recipientId: agency.id,
+              agencyId: agency.id,
+              notificationType: 'CUSTOM'
+            }
           );
         }
       } catch (notifError) {
@@ -984,7 +1007,13 @@ const remove = async (req, res, next) => {
           agencyOwner.fcmToken,
           'Agency Deleted',
           `Your agency "${agency.name}" has been deleted by admin.`,
-          { type: 'AGENCY_DELETED', agencyId: agency.id, agencyName: agency.name }
+          { type: 'AGENCY_DELETED', agencyId: agency.id, agencyName: agency.name },
+          {
+            recipientType: 'agency',
+            recipientId: agency.id,
+            agencyId: agency.id,
+            notificationType: 'CUSTOM'
+          }
         );
       }
     } catch (notifError) {

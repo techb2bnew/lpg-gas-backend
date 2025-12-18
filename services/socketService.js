@@ -1123,10 +1123,17 @@ class SocketService {
    * @param {string} body - Notification body
    * @param {object} data - Additional data
    */
-  async sendCustomPush(fcmToken, title, body, data = {}) {
+  async sendCustomPush(fcmToken, title, body, data = {}, options = {}) {
     if (!fcmToken) return;
     try {
-      await notificationService.sendToDevice(fcmToken, title, body, data);
+      await notificationService.sendToDevice(fcmToken, title, body, data, {
+        recipientType: options.recipientType || 'user',
+        recipientId: options.recipientId || null,
+        orderId: options.orderId || null,
+        agencyId: options.agencyId || null,
+        agentId: options.agentId || null,
+        notificationType: options.notificationType || 'CUSTOM'
+      });
     } catch (error) {
       logger.error('Failed to send custom push:', error.message);
     }
@@ -1139,10 +1146,17 @@ class SocketService {
    * @param {string} body - Notification body
    * @param {object} data - Additional data
    */
-  async sendMultiplePush(fcmTokens, title, body, data = {}) {
+  async sendMultiplePush(fcmTokens, title, body, data = {}, options = {}) {
     if (!fcmTokens || fcmTokens.length === 0) return;
     try {
-      await notificationService.sendToMultipleDevices(fcmTokens, title, body, data);
+      await notificationService.sendToMultipleDevices(fcmTokens, title, body, data, {
+        recipientType: options.recipientType || 'multiple',
+        recipientId: options.recipientId || null,
+        orderId: options.orderId || null,
+        agencyId: options.agencyId || null,
+        agentId: options.agentId || null,
+        notificationType: options.notificationType || 'CUSTOM'
+      });
     } catch (error) {
       logger.error('Failed to send multiple push:', error.message);
     }
