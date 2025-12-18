@@ -18,10 +18,10 @@ router.get('/', getUserNotifications);
 router.get('/unread-count', getUnreadCount);
 
 // Mark notification as read
-router.patch('/:id/read', markAsRead);
+router.put('/:id/read', markAsRead);
 
 // Mark all notifications as read
-router.patch('/read-all', markAllAsRead);
+router.put('/read-all', markAllAsRead);
 
 
 module.exports = router;

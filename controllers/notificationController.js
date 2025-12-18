@@ -10,8 +10,17 @@ const getUserNotifications = async (req, res, next) => {
     const { page = 1, limit = 20, isRead, notificationType } = req.query;
     const offset = (page - 1) * limit;
 
+    // Calculate date 60 days ago
+    const sixtyDaysAgo = new Date();
+    sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
+
     // Build where clause
-    const whereClause = { userId };
+    const whereClause = { 
+      userId,
+      createdAt: {
+        [Op.gte]: sixtyDaysAgo
+      }
+    };
 
     if (isRead !== undefined) {
       whereClause.isRead = isRead === 'true';
