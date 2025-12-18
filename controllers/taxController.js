@@ -1,8 +1,6 @@
 const Tax = require('../models/Tax');
 const PlatformCharge = require('../models/PlatformCharge');
 const { ErrorHandler } = require('../utils/errorHandler');
-const { User, AgencyOwner } = require('../models');
-const notificationService = require('../services/notificationService');
 const logger = require('../utils/logger');
 
 // Add or Update Tax Configuration
@@ -46,36 +44,6 @@ exports.addOrUpdateTax = async (req, res, next) => {
         isActive: tax.isActive,
         action: 'updated'
       });
-    }
-
-    // Send push notification to all customers and agency owners about tax changes
-    try {
-      const customers = await User.findAll({ where: { role: 'customer', isBlocked: false }, attributes: ['fcmToken'] });
-      const agencyOwners = await AgencyOwner.findAll({ where: { isActive: true }, attributes: ['fcmToken'] });
-      
-      const allFCMTokens = [
-        ...customers.map(c => c.fcmToken),
-        ...agencyOwners.map(ao => ao.fcmToken)
-      ].filter(Boolean);
-
-      if (allFCMTokens.length > 0) {
-        const taxText = tax.percentage 
-          ? `${tax.percentage}% tax` 
-          : `₹${tax.fixedAmount} fixed tax`;
-        
-        notificationService.sendToMultipleDevices(
-          allFCMTokens,
-          'Tax Update! 💰',
-          `Tax configuration has been updated to ${taxText}.`,
-          { type: 'TAX_UPDATED', taxId: tax.id, percentage: tax.percentage || 0, fixedAmount: tax.fixedAmount || 0 },
-          {
-            recipientType: 'multiple',
-            notificationType: 'CUSTOM'
-          }
-        ).catch(err => logger.error('Error sending tax update notification:', err));
-      }
-    } catch (notifError) {
-      logger.error('Error sending tax update notification:', notifError);
     }
 
     res.status(200).json({
@@ -149,32 +117,6 @@ exports.deleteTax = async (req, res, next) => {
         isActive: false,
         action: 'deleted'
       });
-    }
-
-    // Send push notification to all customers and agency owners about tax removal
-    try {
-      const customers = await User.findAll({ where: { role: 'customer', isBlocked: false }, attributes: ['fcmToken'] });
-      const agencyOwners = await AgencyOwner.findAll({ where: { isActive: true }, attributes: ['fcmToken'] });
-      
-      const allFCMTokens = [
-        ...customers.map(c => c.fcmToken),
-        ...agencyOwners.map(ao => ao.fcmToken)
-      ].filter(Boolean);
-
-      if (allFCMTokens.length > 0) {
-        notificationService.sendToMultipleDevices(
-          allFCMTokens,
-          'Tax Removed! ✅',
-          'Tax charges have been removed from the platform.',
-          { type: 'TAX_REMOVED', taxId: taxData.id },
-          {
-            recipientType: 'multiple',
-            notificationType: 'CUSTOM'
-          }
-        ).catch(err => logger.error('Error sending tax removal notification:', err));
-      }
-    } catch (notifError) {
-      logger.error('Error sending tax removal notification:', notifError);
     }
 
     res.status(200).json({

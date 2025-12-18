@@ -1,4 +1,4 @@
-const { DeliveryAgent, AgencyOwner } = require('../models');
+const { DeliveryAgent, AgencyOwner, User, Notification } = require('../models');
 const { createDeliveryAgent, updateDeliveryAgent, updateStatus } = require('../validations/deliveryAgentValidation');
 const { createError } = require('../utils/errorHandler');
 const logger = require('../utils/logger');
@@ -94,20 +94,42 @@ const createAgent = async (req, res, next) => {
     // Send Firebase notification to agency owner about new agent
     try {
       const agencyOwner = await AgencyOwner.findOne({ where: { agencyId: agent.agencyId } });
-      if (agencyOwner && agencyOwner.fcmToken) {
-        await notificationService.sendToDevice(
-          agencyOwner.fcmToken,
-          'New Delivery Agent Added! 🚚',
-          `${agent.name} has been added as a delivery agent.`,
-          { type: 'AGENT_CREATED', agentId: agent.id, agentName: agent.name },
-          {
-            recipientType: 'agency',
-            recipientId: agent.agencyId,
-            agencyId: agent.agencyId,
-            agentId: agent.id,
-            notificationType: 'AGENT_STATUS'
-          }
-        );
+      if (agencyOwner) {
+        // Send Firebase push notification
+        if (agencyOwner.fcmToken) {
+          await notificationService.sendToDevice(
+            agencyOwner.fcmToken,
+            'New Delivery Agent Added! 🚚',
+            `${agent.name} has been added as a delivery agent.`,
+            { type: 'AGENT_CREATED', agentId: agent.id, agentName: agent.name },
+            {
+              recipientType: 'agency',
+              recipientId: agent.agencyId,
+              agencyId: agent.agencyId,
+              agentId: agent.id,
+              notificationType: 'AGENT_STATUS'
+            }
+          );
+        }
+
+        // Create database notification for agency owner
+        const agencyOwnerUser = await User.findOne({ where: { email: agencyOwner.email } });
+        if (agencyOwnerUser) {
+          await Notification.create({
+            userId: agencyOwnerUser.id,
+            title: 'New Delivery Agent Added! 🚚',
+            content: `${agent.name} has been added as a delivery agent.`,
+            notificationType: 'OTHER',
+            data: {
+              type: 'AGENT_CREATED',
+              agentId: agent.id,
+              agentName: agent.name,
+              agentEmail: agent.email,
+              agentPhone: agent.phone,
+              agencyId: agent.agencyId
+            }
+          });
+        }
       }
     } catch (notifError) {
       logger.error('Error sending agent creation notification:', notifError.message);
@@ -289,6 +311,17 @@ const updateAgent = async (req, res, next) => {
 
     // Send Firebase notification to agent about profile update
     try {
+      // Find agent's user account by email or phone
+      const agentUser = await User.findOne({ 
+        where: { 
+          [Op.or]: [
+            { email: agent.email },
+            { phone: agent.phone }
+          ]
+        } 
+      });
+
+      // Send Firebase push notification
       if (agent.fcmToken) {
         await notificationService.sendToDevice(
           agent.fcmToken,
@@ -303,6 +336,21 @@ const updateAgent = async (req, res, next) => {
             notificationType: 'AGENT_STATUS'
           }
         );
+      }
+
+      // Create database notification for agent
+      if (agentUser) {
+        await Notification.create({
+          userId: agentUser.id,
+          title: 'Profile Updated',
+          content: 'Your delivery agent profile has been updated.',
+          notificationType: 'OTHER',
+          data: {
+            type: 'AGENT_PROFILE_UPDATED',
+            agentId: agent.id,
+            agencyId: agent.agencyId
+          }
+        });
       }
     } catch (notifError) {
       logger.error('Error sending agent update notification:', notifError.message);
@@ -339,6 +387,17 @@ const deleteAgent = async (req, res, next) => {
 
     // Send Firebase notification to agent before deletion
     try {
+      // Find agent's user account by email or phone
+      const agentUser = await User.findOne({ 
+        where: { 
+          [Op.or]: [
+            { email: agent.email },
+            { phone: agent.phone }
+          ]
+        } 
+      });
+
+      // Send Firebase push notification
       if (agent.fcmToken) {
         await notificationService.sendToDevice(
           agent.fcmToken,
@@ -353,6 +412,22 @@ const deleteAgent = async (req, res, next) => {
             notificationType: 'AGENT_STATUS'
           }
         );
+      }
+
+      // Create database notification for agent
+      if (agentUser) {
+        await Notification.create({
+          userId: agentUser.id,
+          title: 'Account Removed',
+          content: 'Your delivery agent account has been removed from the system.',
+          notificationType: 'OTHER',
+          data: {
+            type: 'AGENT_DELETED',
+            agentId: agent.id,
+            agentName: agent.name,
+            agencyId: agent.agencyId
+          }
+        });
       }
     } catch (notifError) {
       logger.error('Error sending agent deletion notification:', notifError.message);
@@ -415,17 +490,35 @@ const updateAgentStatus = async (req, res, next) => {
 
     // Send Firebase notification to agent about status change
     try {
+      // Find agent's user account by email or phone
+      const agentUser = await User.findOne({ 
+        where: { 
+          [Op.or]: [
+            { email: agent.email },
+            { phone: agent.phone }
+          ]
+        } 
+      });
+
+      const statusMessages = {
+        'active': 'Your account is now active. You can receive delivery assignments.',
+        'inactive': 'Your account has been set to inactive.',
+        'busy': 'Your status has been set to busy.',
+        'offline': 'Your status has been set to offline.'
+      };
+
+      const statusTitles = {
+        'active': 'Account Activated! ✅',
+        'inactive': 'Account Deactivated',
+        'busy': 'Status Updated',
+        'offline': 'Status Updated'
+      };
+
+      // Send Firebase push notification
       if (agent.fcmToken) {
-        const statusMessages = {
-          'active': 'Your account is now active. You can receive delivery assignments.',
-          'inactive': 'Your account has been set to inactive.',
-          'busy': 'Your status has been set to busy.',
-          'offline': 'Your status has been set to offline.'
-        };
-        
         await notificationService.sendToDevice(
           agent.fcmToken,
-          value.status === 'active' ? 'Account Activated! ✅' : 'Status Updated',
+          statusTitles[value.status] || 'Status Updated',
           statusMessages[value.status] || `Your status has been updated to ${value.status}.`,
           { type: 'AGENT_STATUS_CHANGED', agentId: agent.id, status: value.status },
           {
@@ -436,6 +529,22 @@ const updateAgentStatus = async (req, res, next) => {
             notificationType: 'AGENT_STATUS'
           }
         );
+      }
+
+      // Create database notification for agent
+      if (agentUser) {
+        await Notification.create({
+          userId: agentUser.id,
+          title: statusTitles[value.status] || 'Status Updated',
+          content: statusMessages[value.status] || `Your status has been updated to ${value.status}.`,
+          notificationType: 'OTHER',
+          data: {
+            type: 'AGENT_STATUS_CHANGED',
+            agentId: agent.id,
+            status: value.status,
+            agencyId: agent.agencyId
+          }
+        });
       }
     } catch (notifError) {
       logger.error('Error sending agent status notification:', notifError.message);

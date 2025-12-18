@@ -417,7 +417,7 @@ const createOrderHandler = async (req, res, next) => {
         await Notification.create({
           userId: customer.id,
           title: 'Order Placed Successfully!',
-          body: `Your order #${order.orderNumber} has been placed successfully. Total amount: ₹${order.totalAmount}`,
+          content: `Your order #${order.orderNumber} has been placed successfully. Total amount: ₹${order.totalAmount}`,
           notificationType: 'ORDER_STATUS',
           data: {
             type: 'ORDER_STATUS',
@@ -438,7 +438,7 @@ const createOrderHandler = async (req, res, next) => {
           await Notification.create({
             userId: agencyOwnerUser.id,
             title: 'New Order Received! ',
-            body: `New order #${order.orderNumber} received from ${order.customerName}. Total: ₹${order.totalAmount}`,
+            content: `New order #${order.orderNumber} received from ${order.customerName}. Total: ₹${order.totalAmount}`,
             notificationType: 'NEW_ORDER',
             data: {
               type: 'NEW_ORDER',
@@ -770,11 +770,45 @@ const updateOrderStatusHandler = async (req, res, next) => {
     // Send Firebase notification to customer about status update
     try {
       const customer = await User.findOne({ where: { email: order.customerEmail } });
-      if (customer && customer.fcmToken) {
-        await notificationService.sendOrderStatusNotification(customer.fcmToken, {
-          id: order.id,
-          orderNumber: order.orderNumber,
-          status: value.status
+      if (customer) {
+        // Send Firebase push notification
+        if (customer.fcmToken) {
+          await notificationService.sendOrderStatusNotification(customer.fcmToken, {
+            id: order.id,
+            orderNumber: order.orderNumber,
+            status: value.status
+          });
+        }
+
+        // Create database notification
+        const statusMessages = {
+          'confirmed': `Your order #${order.orderNumber} has been confirmed.`,
+          'assigned': `Agent has been assigned to your order #${order.orderNumber}.`,
+          'out_for_delivery': `Your order #${order.orderNumber} is out for delivery.`,
+          'delivered': `Your order #${order.orderNumber} has been delivered successfully.`,
+          'cancelled': `Your order #${order.orderNumber} has been cancelled.`
+        };
+
+        const notificationTitle = {
+          'confirmed': 'Order Confirmed!',
+          'assigned': 'Agent Assigned!',
+          'out_for_delivery': 'Order Out for Delivery!',
+          'delivered': 'Order Delivered!',
+          'cancelled': 'Order Cancelled'
+        };
+
+        await Notification.create({
+          userId: customer.id,
+          title: notificationTitle[value.status] || 'Order Status Updated',
+          content: statusMessages[value.status] || `Your order #${order.orderNumber} status has been updated to ${value.status}.`,
+          notificationType: 'ORDER_STATUS',
+          data: {
+            type: 'ORDER_STATUS',
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            status: value.status
+          },
+          orderId: order.id
         });
       }
     } catch (notifError) {
@@ -847,17 +881,18 @@ const assignAgentHandler = async (req, res, next) => {
 
     // Send Firebase notification to delivery agent about new assignment
     try {
-      if (agent.fcmToken) {
-        // Find agent's user account by email or phone
-        const agentUser = await User.findOne({ 
-          where: { 
-            [Op.or]: [
-              { email: agent.email },
-              { phone: agent.phone }
-            ]
-          } 
-        });
+      // Find agent's user account by email or phone
+      const agentUser = await User.findOne({ 
+        where: { 
+          [Op.or]: [
+            { email: agent.email },
+            { phone: agent.phone }
+          ]
+        } 
+      });
 
+      // Send Firebase notification to agent
+      if (agent.fcmToken) {
         await notificationService.sendOrderAssignedToAgent(agent.fcmToken, {
           id: order.id,
           orderNumber: order.orderNumber,
@@ -871,22 +906,62 @@ const assignAgentHandler = async (req, res, next) => {
           notificationType: 'ORDER_ASSIGNED'
         });
       }
+
+      // Create database notification for agent
+      if (agentUser) {
+        await Notification.create({
+          userId: agentUser.id,
+          title: 'New Order Assigned!',
+          content: `You have been assigned to order #${order.orderNumber}. Delivery address: ${order.customerAddress}`,
+          notificationType: 'ORDER_ASSIGNED',
+          data: {
+            type: 'ORDER_ASSIGNED',
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            deliveryAddress: order.customerAddress,
+            customerName: order.customerName,
+            customerPhone: order.customerPhone
+          },
+          orderId: order.id
+        });
+      }
       
       // Also notify customer that agent is assigned
       const customer = await User.findOne({ where: { email: order.customerEmail } });
-      if (customer && customer.fcmToken) {
-        await notificationService.sendOrderStatusNotification(customer.fcmToken, {
-          id: order.id,
-          orderNumber: order.orderNumber,
-          status: 'assigned',
+      if (customer) {
+        // Send Firebase notification to customer
+        if (customer.fcmToken) {
+          await notificationService.sendOrderStatusNotification(customer.fcmToken, {
+            id: order.id,
+            orderNumber: order.orderNumber,
+            status: 'assigned',
+            userId: customer.id,
+            agencyId: order.agencyId
+          }, {
+            recipientType: 'user',
+            recipientId: customer.id,
+            orderId: order.id,
+            agencyId: order.agencyId,
+            notificationType: 'ORDER_STATUS'
+          });
+        }
+
+        // Create database notification for customer
+        await Notification.create({
           userId: customer.id,
-          agencyId: order.agencyId
-        }, {
-          recipientType: 'user',
-          recipientId: customer.id,
-          orderId: order.id,
-          agencyId: order.agencyId,
-          notificationType: 'ORDER_STATUS'
+          title: 'Agent Assigned!',
+          content: `Agent ${agent.name} has been assigned to your order #${order.orderNumber}.`,
+          notificationType: 'ORDER_STATUS',
+          data: {
+            type: 'ORDER_STATUS',
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            status: 'assigned',
+            agentId: agent.id,
+            agentName: agent.name,
+            agentPhone: agent.phone
+          },
+          orderId: order.id
         });
       }
     } catch (notifError) {
@@ -965,13 +1040,32 @@ const sendOTPHandler = async (req, res, next) => {
     // Send Firebase notification to customer about out for delivery
     try {
       const customer = await User.findOne({ where: { email: order.customerEmail } });
-      if (customer && customer.fcmToken) {
-        await notificationService.sendToDevice(
-          customer.fcmToken,
-          'Out for Delivery!',
-          `Your order #${order.orderNumber} is out for delivery. OTP sent to your email.`,
-          { type: 'OUT_FOR_DELIVERY', orderId: order.id, orderNumber: order.orderNumber }
-        );
+      if (customer) {
+        // Send Firebase push notification
+        if (customer.fcmToken) {
+          await notificationService.sendToDevice(
+            customer.fcmToken,
+            'Out for Delivery!',
+            `Your order #${order.orderNumber} is out for delivery. OTP sent to your email.`,
+            { type: 'OUT_FOR_DELIVERY', orderId: order.id, orderNumber: order.orderNumber }
+          );
+        }
+
+        // Create database notification for customer
+        await Notification.create({
+          userId: customer.id,
+          title: 'Order Out for Delivery!',
+          content: `Your order #${order.orderNumber} is out for delivery. OTP has been sent to your email.`,
+          notificationType: 'ORDER_STATUS',
+          data: {
+            type: 'ORDER_STATUS',
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            status: 'out_for_delivery',
+            otpSent: true
+          },
+          orderId: order.id
+        });
       }
     } catch (notifError) {
       logger.error('Error sending out for delivery notification:', notifError.message);
@@ -1069,23 +1163,65 @@ const verifyOTPHandler = async (req, res, next) => {
     // Send Firebase notification to customer about delivery
     try {
       const customer = await User.findOne({ where: { email: order.customerEmail } });
-      if (customer && customer.fcmToken) {
-        await notificationService.sendOrderStatusNotification(customer.fcmToken, {
-          id: order.id,
-          orderNumber: order.orderNumber,
-          status: 'delivered'
+      if (customer) {
+        // Send Firebase push notification
+        if (customer.fcmToken) {
+          await notificationService.sendOrderStatusNotification(customer.fcmToken, {
+            id: order.id,
+            orderNumber: order.orderNumber,
+            status: 'delivered'
+          });
+        }
+
+        // Create database notification for customer
+        await Notification.create({
+          userId: customer.id,
+          title: 'Order Delivered!',
+          content: `Your order #${order.orderNumber} has been delivered successfully.`,
+          notificationType: 'ORDER_STATUS',
+          data: {
+            type: 'ORDER_STATUS',
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            status: 'delivered',
+            paymentReceived: value.paymentReceived || false
+          },
+          orderId: order.id
         });
       }
       
       // Notify agency owner about completed delivery
       const agencyOwner = await AgencyOwner.findOne({ where: { agencyId: order.agencyId } });
-      if (agencyOwner && agencyOwner.fcmToken) {
-        await notificationService.sendToDevice(
-          agencyOwner.fcmToken,
-          'Order Delivered!',
-          `Order #${order.orderNumber} has been delivered successfully.`,
-          { type: 'ORDER_DELIVERED', orderId: order.id, orderNumber: order.orderNumber }
-        );
+      if (agencyOwner) {
+        // Send Firebase push notification
+        if (agencyOwner.fcmToken) {
+          await notificationService.sendToDevice(
+            agencyOwner.fcmToken,
+            'Order Delivered!',
+            `Order #${order.orderNumber} has been delivered successfully.`,
+            { type: 'ORDER_DELIVERED', orderId: order.id, orderNumber: order.orderNumber }
+          );
+        }
+
+        // Create database notification for agency owner
+        const agencyOwnerUser = await User.findOne({ where: { email: agencyOwner.email } });
+        if (agencyOwnerUser) {
+          await Notification.create({
+            userId: agencyOwnerUser.id,
+            title: 'Order Delivered!',
+            content: `Order #${order.orderNumber} has been delivered successfully.`,
+            notificationType: 'ORDER_STATUS',
+            data: {
+              type: 'ORDER_STATUS',
+              orderId: order.id,
+              orderNumber: order.orderNumber,
+              status: 'delivered',
+              customerName: order.customerName,
+              totalAmount: order.totalAmount
+            },
+            orderId: order.id
+          });
+        }
       }
     } catch (notifError) {
       logger.error('Error sending delivery notification:', notifError.message);
@@ -1189,13 +1325,34 @@ const cancelOrderHandler = async (req, res, next) => {
     // Send Firebase notification to customer about cancellation
     try {
       const customer = await User.findOne({ where: { email: order.customerEmail } });
-      if (customer && customer.fcmToken) {
-        await notificationService.sendToDevice(
-          customer.fcmToken,
-          'Order Cancelled',
-          `Your order #${order.orderNumber} has been cancelled. Reason: ${value.reason || 'Not specified'}`,
-          { type: 'ORDER_CANCELLED', orderId: order.id, orderNumber: order.orderNumber }
-        );
+      if (customer) {
+        // Send Firebase push notification
+        if (customer.fcmToken) {
+          await notificationService.sendToDevice(
+            customer.fcmToken,
+            'Order Cancelled',
+            `Your order #${order.orderNumber} has been cancelled. Reason: ${value.reason || 'Not specified'}`,
+            { type: 'ORDER_CANCELLED', orderId: order.id, orderNumber: order.orderNumber }
+          );
+        }
+
+        // Create database notification for customer
+        await Notification.create({
+          userId: customer.id,
+          title: 'Order Cancelled',
+          content: `Your order #${order.orderNumber} has been cancelled${value.reason ? `. Reason: ${value.reason}` : ''}.`,
+          notificationType: 'ORDER_STATUS',
+          data: {
+            type: 'ORDER_STATUS',
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            status: 'cancelled',
+            cancelledBy: cancelledBy,
+            cancelledByName: cancelledByName,
+            reason: value.reason
+          },
+          orderId: order.id
+        });
       }
     } catch (notifError) {
       logger.error('Error sending cancellation notification:', notifError.message);
@@ -1719,24 +1876,68 @@ const returnOrderHandler = async (req, res, next) => {
     // Send Firebase notification to customer about return
     try {
       const customer = await User.findOne({ where: { email: order.customerEmail } });
-      if (customer && customer.fcmToken) {
-        await notificationService.sendToDevice(
-          customer.fcmToken,
-          'Order Returned',
-          `Your order #${order.orderNumber} has been returned. Reason: ${value.reason || 'Not specified'}`,
-          { type: 'ORDER_RETURNED', orderId: order.id, orderNumber: order.orderNumber }
-        );
+      if (customer) {
+        // Send Firebase push notification
+        if (customer.fcmToken) {
+          await notificationService.sendToDevice(
+            customer.fcmToken,
+            'Order Returned',
+            `Your order #${order.orderNumber} has been returned. Reason: ${value.reason || 'Not specified'}`,
+            { type: 'ORDER_RETURNED', orderId: order.id, orderNumber: order.orderNumber }
+          );
+        }
+
+        // Create database notification for customer
+        await Notification.create({
+          userId: customer.id,
+          title: 'Order Returned',
+          content: `Your order #${order.orderNumber} has been returned${value.reason ? `. Reason: ${value.reason}` : ''}.`,
+          notificationType: 'ORDER_STATUS',
+          data: {
+            type: 'ORDER_STATUS',
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            status: 'returned',
+            returnedBy: returnedBy,
+            returnedByName: returnedByName,
+            reason: value.reason
+          },
+          orderId: order.id
+        });
       }
       
       // Notify agency owner about return
       const agencyOwner = await AgencyOwner.findOne({ where: { agencyId: order.agencyId } });
-      if (agencyOwner && agencyOwner.fcmToken) {
-        await notificationService.sendToDevice(
-          agencyOwner.fcmToken,
-          'Order Returned',
-          `Order #${order.orderNumber} has been returned. Stock restored.`,
-          { type: 'ORDER_RETURNED', orderId: order.id, orderNumber: order.orderNumber }
-        );
+      if (agencyOwner) {
+        // Send Firebase push notification
+        if (agencyOwner.fcmToken) {
+          await notificationService.sendToDevice(
+            agencyOwner.fcmToken,
+            'Order Returned',
+            `Order #${order.orderNumber} has been returned. Stock restored.`,
+            { type: 'ORDER_RETURNED', orderId: order.id, orderNumber: order.orderNumber }
+          );
+        }
+
+        // Create database notification for agency owner
+        const agencyOwnerUser = await User.findOne({ where: { email: agencyOwner.email } });
+        if (agencyOwnerUser) {
+          await Notification.create({
+            userId: agencyOwnerUser.id,
+            title: 'Order Returned',
+            content: `Order #${order.orderNumber} has been returned. Stock has been restored to inventory.`,
+            notificationType: 'ORDER_STATUS',
+            data: {
+              type: 'ORDER_STATUS',
+              orderId: order.id,
+              orderNumber: order.orderNumber,
+              status: 'returned',
+              customerName: order.customerName,
+              reason: value.reason
+            },
+            orderId: order.id
+          });
+        }
       }
     } catch (notifError) {
       logger.error('Error sending return notification:', notifError.message);
@@ -1908,13 +2109,33 @@ const markPaymentReceivedHandler = async (req, res, next) => {
     // Send Firebase notification to customer about payment and delivery
     try {
       const customer = await User.findOne({ where: { email: order.customerEmail } });
-      if (customer && customer.fcmToken) {
-        await notificationService.sendToDevice(
-          customer.fcmToken,
-          'Order Delivered!',
-          `Your order #${order.orderNumber} has been delivered. Payment ${value.paymentReceived ? 'received' : 'pending'}.`,
-          { type: 'ORDER_DELIVERED', orderId: order.id, orderNumber: order.orderNumber, paymentReceived: value.paymentReceived }
-        );
+      if (customer) {
+        // Send Firebase push notification
+        if (customer.fcmToken) {
+          await notificationService.sendToDevice(
+            customer.fcmToken,
+            'Order Delivered!',
+            `Your order #${order.orderNumber} has been delivered. Payment ${value.paymentReceived ? 'received' : 'pending'}.`,
+            { type: 'ORDER_DELIVERED', orderId: order.id, orderNumber: order.orderNumber, paymentReceived: value.paymentReceived }
+          );
+        }
+
+        // Create database notification for customer
+        await Notification.create({
+          userId: customer.id,
+          title: 'Order Delivered!',
+          content: `Your order #${order.orderNumber} has been delivered. Payment ${value.paymentReceived ? 'received' : 'pending'}.`,
+          notificationType: 'ORDER_STATUS',
+          data: {
+            type: 'ORDER_STATUS',
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            status: 'delivered',
+            paymentReceived: value.paymentReceived,
+            paymentStatus: order.paymentStatus
+          },
+          orderId: order.id
+        });
       }
     } catch (notifError) {
       logger.error('Error sending payment received notification:', notifError.message);
@@ -2221,13 +2442,32 @@ const pesapalCallbackHandler = async (req, res) => {
       // Send Firebase notification for payment success
       try {
         const customer = await User.findOne({ where: { email: order.customerEmail } });
-        if (customer && customer.fcmToken) {
-          await notificationService.sendToDevice(
-            customer.fcmToken,
-            'Payment Successful!',
-            `Payment for Order #${order.orderNumber} has been confirmed. Your order is being processed.`,
-            { type: 'PAYMENT_SUCCESS', orderId: order.id, orderNumber: order.orderNumber }
-          );
+        if (customer) {
+          // Send Firebase push notification
+          if (customer.fcmToken) {
+            await notificationService.sendToDevice(
+              customer.fcmToken,
+              'Payment Successful!',
+              `Payment for Order #${order.orderNumber} has been confirmed. Your order is being processed.`,
+              { type: 'PAYMENT_SUCCESS', orderId: order.id, orderNumber: order.orderNumber }
+            );
+          }
+
+          // Create database notification for customer
+          await Notification.create({
+            userId: customer.id,
+            title: 'Payment Successful!',
+            content: `Payment for Order #${order.orderNumber} has been confirmed. Your order is being processed.`,
+            notificationType: 'PAYMENT',
+            data: {
+              type: 'PAYMENT_SUCCESS',
+              orderId: order.id,
+              orderNumber: order.orderNumber,
+              paymentStatus: 'paid',
+              orderStatus: updateData.status || order.status
+            },
+            orderId: order.id
+          });
         }
       } catch (notifError) {
         logger.error('Error sending payment success notification:', notifError.message);
@@ -2259,13 +2499,32 @@ const pesapalCallbackHandler = async (req, res) => {
       // Send Firebase notification for payment failure
       try {
         const customer = await User.findOne({ where: { email: order.customerEmail } });
-        if (customer && customer.fcmToken) {
-          await notificationService.sendToDevice(
-            customer.fcmToken,
-            'Payment Failed',
-            `Payment for Order #${order.orderNumber} failed. Please try again.`,
-            { type: 'PAYMENT_FAILED', orderId: order.id, orderNumber: order.orderNumber }
-          );
+        if (customer) {
+          // Send Firebase push notification
+          if (customer.fcmToken) {
+            await notificationService.sendToDevice(
+              customer.fcmToken,
+              'Payment Failed',
+              `Payment for Order #${order.orderNumber} failed. Please try again.`,
+              { type: 'PAYMENT_FAILED', orderId: order.id, orderNumber: order.orderNumber }
+            );
+          }
+
+          // Create database notification for customer
+          await Notification.create({
+            userId: customer.id,
+            title: 'Payment Failed',
+            content: `Payment for Order #${order.orderNumber} failed. Please try again.`,
+            notificationType: 'PAYMENT',
+            data: {
+              type: 'PAYMENT_FAILED',
+              orderId: order.id,
+              orderNumber: order.orderNumber,
+              paymentStatus: 'failed',
+              pesapalStatus: paymentStatus
+            },
+            orderId: order.id
+          });
         }
       } catch (notifError) {
         logger.error('Error sending payment failed notification:', notifError.message);

@@ -134,61 +134,10 @@ const markAllAsRead = async (req, res, next) => {
   }
 };
 
-// Delete notification
-const deleteNotification = async (req, res, next) => {
-  try {
-    const userId = req.user.id;
-    const { id } = req.params;
-
-    const notification = await Notification.findOne({
-      where: {
-        id,
-        userId
-      }
-    });
-
-    if (!notification) {
-      return next(createError(404, 'Notification not found'));
-    }
-
-    await notification.destroy();
-
-    res.status(200).json({
-      success: true,
-      message: 'Notification deleted successfully'
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-// Delete all notifications
-const deleteAllNotifications = async (req, res, next) => {
-  try {
-    const userId = req.user.id;
-
-    const result = await Notification.destroy({
-      where: { userId }
-    });
-
-    res.status(200).json({
-      success: true,
-      message: 'All notifications deleted successfully',
-      data: {
-        deletedCount: result
-      }
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
 module.exports = {
   getUserNotifications,
   getUnreadCount,
   markAsRead,
-  markAllAsRead,
-  deleteNotification,
-  deleteAllNotifications
+  markAllAsRead
 };
 
