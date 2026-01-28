@@ -34,7 +34,6 @@ app.use(cors({
 }));
 
 // Static file serving removed - using Cloudinary for image storage
-
 // Additional CORS middleware for preflight requests
 app.use((req, res, next) => {
   // Set CORS headers
