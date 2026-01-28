@@ -4,11 +4,18 @@ const orderController = require('../controllers/orderController');
 const { authenticate } = require('../middleware/auth');
 const uploadDeliveryProof = require('../middleware/deliveryProofUpload');
 
-// Customer routes (no authentication required for checkout)
+
+
+// Customer routes (no authentication required for checkout and payment)
 router.post('/checkout', orderController.createOrderHandler);
+router.post('/payment', orderController.orderpesapalPayment);
+router.get('/payment/status/:orderId', orderController.getPesapalPaymentStatus);
 
 // Admin/Agent routes (require authentication)
 router.use(authenticate);
+
+router.post('/orderdetails', orderController.orderDetailslist);
+
 router.get('/', orderController.getAllOrders);
 router.get('/:id', orderController.getOrderById);
 router.get('/status/:status', orderController.getOrdersByStatus);
@@ -30,5 +37,9 @@ router.post('/:id/verify-otp', uploadDeliveryProof.single('deliveryProof'), orde
 router.put('/:id/cancel', orderController.cancelOrderHandler);
 router.put('/:id/return', orderController.returnOrderHandler);
 router.put('/:id/payment', orderController.markPaymentReceivedHandler);
+
+
+
+
 
 module.exports = router;

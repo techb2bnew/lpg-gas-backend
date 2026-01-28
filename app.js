@@ -34,6 +34,7 @@ app.use(cors({
 }));
 
 // Static file serving removed - using Cloudinary for image storage
+
 // Additional CORS middleware for preflight requests
 app.use((req, res, next) => {
   // Set CORS headers
@@ -90,18 +91,28 @@ app.get('/test', (req, res) => {
   });
 });
 
+// Pesapal callback route (must be at root level, called by Pesapal)
+const orderController = require('./controllers/orderController');
+app.get('/pesapal/callback', orderController.pesapalCallbackHandler);
+// Also handle root callback in case Pesapal sends it there
+app.get('/', (req, res, next) => {
+  // Check if this is a Pesapal callback
+  if (req.query.OrderTrackingId || req.query.OrderMerchantReference) {
+    return orderController.pesapalCallbackHandler(req, res, next);
+  }
+  // Otherwise continue to next middleware
+  next();
+});
+
 // API routes
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/delivery-agents', require('./routes/deliveryAgent'));
 
 // Product routes with debugging
-console.log('Loading product routes...');
 try {
   const productRoutes = require('./routes/product');
-  console.log('Product routes loaded successfully:', typeof productRoutes);
-  console.log('Product routes object:', productRoutes);
+
   app.use('/api/products', productRoutes);
-  console.log('Product routes registered at /api/products');
 } catch (error) {
   console.error('Error loading product routes:', error);
   process.exit(1);
@@ -109,6 +120,7 @@ try {
 
 app.use('/api/orders', require('./routes/order'));
 app.use('/api/addresses', require('./routes/address'));
+app.use('/api/notifications', require('./routes/notification'));
 app.use('/api/agencies', require('./routes/agency'));
 app.use('/api/dashboard', require('./routes/dashboard'));
 
@@ -133,6 +145,9 @@ app.use('/api/delivery-charges', require('./routes/deliveryCharge'));
 
 // Public routes for Terms & Conditions and Privacy Policy
 app.use('/api/public', require('./routes/public'));
+
+
+app.use('/api/banners', require('./routes/banner'));
 
 // 404 handler
 app.use(require('./middleware/notFound'));

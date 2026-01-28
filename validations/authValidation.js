@@ -9,6 +9,13 @@ const validateLogin = Joi.object({
   password: Joi.string().min(6).required().messages({
     'string.min': 'Password must be at least 6 characters long',
     'any.required': 'Password is required'
+  }),
+  fcmToken: Joi.string().optional().allow('', null).messages({
+    'string.base': 'FCM token must be a string'
+  }),
+  fcmDeviceType: Joi.string().optional().allow('', null).valid('ios', 'android', 'web').messages({
+    'string.base': 'FCM device type must be a string',
+    'any.only': 'FCM device type must be ios, android, or web'
   })
 });
 
@@ -123,7 +130,9 @@ const validateRequestOTP = Joi.object({
   role: Joi.string().valid('customer', 'agent').required().messages({
     'any.only': 'Role must be customer or agent',
     'any.required': 'Role is required'
-  })
+  }),
+  fcmToken: Joi.string().optional().allow('', null),
+  fcmDeviceType: Joi.string().optional().allow('', null)
 });
 
 // Validation for verifying OTP
@@ -139,7 +148,9 @@ const validateVerifyOTP = Joi.object({
   role: Joi.string().valid('customer', 'agent').required().messages({
     'any.only': 'Role must be customer or agent',
     'any.required': 'Role is required'
-  })
+  }),
+  fcmToken: Joi.string().optional().allow('', null),
+  fcmDeviceType: Joi.string().optional().allow('', null)
 });
 
 // Validation for agency owner initial password set

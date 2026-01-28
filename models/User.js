@@ -79,6 +79,15 @@ const User = sequelize.define('User', {
   isBlocked: {
     type: DataTypes.BOOLEAN,
     defaultValue: false
+  },
+  // FCM Push Notification Token
+  fcmToken: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
+  fcmDeviceType: {
+    type: DataTypes.STRING,
+    allowNull: true
   }
 }, {
   tableName: 'users',

@@ -25,10 +25,7 @@ async function testNewAgency() {
       state: 'Test State'
     });
     
-    console.log('✅ Agency owner created successfully');
-    console.log(`🔑 Stored hash: ${agencyOwner.password}`);
-    console.log(`🔑 Hash length: ${agencyOwner.password.length}\n`);
-    
+   
     // Test password comparison
     const isPasswordValid = await agencyOwner.comparePassword(testPassword);
     console.log(`🔐 Password validation result: ${isPasswordValid}`);

@@ -1,6 +1,9 @@
 const Coupon = require('../models/Coupon');
 const { createError } = require('../utils/errorHandler');
 const { Op } = require('sequelize');
+const { User, Notification } = require('../models');
+const notificationService = require('../services/notificationService');
+const logger = require('../utils/logger');
 
 // Add Coupon (Agency Owner)
 exports.addCoupon = async (req, res, next) => {
@@ -68,6 +71,58 @@ exports.addCoupon = async (req, res, next) => {
         isActive: coupon.isActive,
         action: 'created'
       });
+    }
+
+    // Send Firebase notification to all customers about new coupon
+    try {
+      const customers = await User.findAll({ 
+        where: { role: 'customer', isBlocked: false },
+        attributes: ['id', 'fcmToken']
+      });
+      const customerTokens = customers.map(c => c.fcmToken).filter(token => token);
+      
+      const discountText = coupon.discountType === 'percentage' 
+        ? `${coupon.discountValue}% OFF` 
+        : `$${coupon.discountValue} OFF`;
+      
+      // Send Firebase push notifications
+      if (customerTokens.length > 0) {
+        await notificationService.sendToMultipleDevices(
+          customerTokens,
+          'New Coupon Available! 🎁',
+          `Use code "${coupon.code}" to get ${discountText} on your next order!`,
+          { type: 'COUPON_CREATED', couponId: coupon.id, couponCode: coupon.code, agencyId: coupon.agencyId },
+          {
+            recipientType: 'multiple',
+            agencyId: coupon.agencyId,
+            notificationType: 'PROMOTION'
+          }
+        );
+        logger.info(`Coupon notification sent to ${customerTokens.length} customers`);
+      }
+
+      // Create database notifications for all customers
+      const notificationPromises = customers.map(customer => 
+        Notification.create({
+          userId: customer.id,
+          title: 'New Coupon Available! 🎁',
+          content: `Use code "${coupon.code}" to get ${discountText} on your next order!`,
+          notificationType: 'PROMOTION',
+          data: {
+            type: 'COUPON_CREATED',
+            couponId: coupon.id,
+            couponCode: coupon.code,
+            discountType: coupon.discountType,
+            discountValue: coupon.discountValue,
+            agencyId: coupon.agencyId
+          }
+        })
+      );
+
+      await Promise.all(notificationPromises);
+      logger.info(`Database notifications created for ${customers.length} customers`);
+    } catch (notifError) {
+      logger.error('Error sending coupon notification:', notifError.message);
     }
 
     res.status(201).json({
@@ -181,6 +236,10 @@ exports.updateCoupon = async (req, res, next) => {
       return next(createError(400, 'Maximum amount must be greater than minimum amount'));
     }
 
+    // Track if coupon is being activated
+    const wasInactive = !coupon.isActive;
+    const isBeingActivated = isActive !== undefined && isActive && wasInactive;
+
     // Update fields
     if (code) coupon.code = code.toUpperCase();
     if (discountType) coupon.discountType = discountType;
@@ -208,6 +267,59 @@ exports.updateCoupon = async (req, res, next) => {
         isActive: coupon.isActive,
         action: 'updated'
       });
+    }
+
+    // Send notifications if coupon is being activated
+    if (isBeingActivated) {
+      try {
+        const customers = await User.findAll({ 
+          where: { role: 'customer', isBlocked: false },
+          attributes: ['id', 'fcmToken']
+        });
+        const customerTokens = customers.map(c => c.fcmToken).filter(token => token);
+        
+        const discountText = coupon.discountType === 'percentage' 
+          ? `${coupon.discountValue}% OFF` 
+          : `$${coupon.discountValue} OFF`;
+        
+        // Send Firebase push notifications
+        if (customerTokens.length > 0) {
+          await notificationService.sendToMultipleDevices(
+            customerTokens,
+            'Coupon Activated! 🎉',
+            `Coupon "${coupon.code}" is now active! Get ${discountText} on your order.`,
+            { type: 'COUPON_ACTIVATED', couponId: coupon.id, couponCode: coupon.code, agencyId: coupon.agencyId },
+            {
+              recipientType: 'multiple',
+              agencyId: coupon.agencyId,
+              notificationType: 'PROMOTION'
+            }
+          );
+        }
+
+        // Create database notifications for all customers
+        const notificationPromises = customers.map(customer => 
+          Notification.create({
+            userId: customer.id,
+            title: 'Coupon Activated! 🎉',
+            content: `Coupon "${coupon.code}" is now active! Get ${discountText} on your order.`,
+            notificationType: 'PROMOTION',
+            data: {
+              type: 'COUPON_ACTIVATED',
+              couponId: coupon.id,
+              couponCode: coupon.code,
+              discountType: coupon.discountType,
+              discountValue: coupon.discountValue,
+              agencyId: coupon.agencyId
+            }
+          })
+        );
+
+        await Promise.all(notificationPromises);
+        logger.info(`Coupon activation notifications created for ${customers.length} customers`);
+      } catch (notifError) {
+        logger.error('Error sending coupon activation notification:', notifError.message);
+      }
     }
 
     res.status(200).json({
@@ -254,6 +366,59 @@ exports.toggleCouponStatus = async (req, res, next) => {
         isActive: coupon.isActive,
         action: 'status-changed'
       });
+    }
+
+    // Send Firebase notification when coupon is activated
+    if (isActive) {
+      try {
+        const customers = await User.findAll({ 
+          where: { role: 'customer', isBlocked: false },
+          attributes: ['id', 'fcmToken']
+        });
+        const customerTokens = customers.map(c => c.fcmToken).filter(token => token);
+        
+        const discountText = coupon.discountType === 'percentage' 
+          ? `${coupon.discountValue}% OFF` 
+          : `$${coupon.discountValue} OFF`;
+        
+        // Send Firebase push notifications
+        if (customerTokens.length > 0) {
+          await notificationService.sendToMultipleDevices(
+            customerTokens,
+            'Coupon Activated! 🎉',
+            `Coupon "${coupon.code}" is now active! Get ${discountText} on your order.`,
+            { type: 'COUPON_ACTIVATED', couponId: coupon.id, couponCode: coupon.code, agencyId: coupon.agencyId },
+            {
+              recipientType: 'multiple',
+              agencyId: coupon.agencyId,
+              notificationType: 'PROMOTION'
+            }
+          );
+        }
+
+        // Create database notifications for all customers
+        const notificationPromises = customers.map(customer => 
+          Notification.create({
+            userId: customer.id,
+            title: 'Coupon Activated! 🎉',
+            content: `Coupon "${coupon.code}" is now active! Get ${discountText} on your order.`,
+            notificationType: 'PROMOTION',
+            data: {
+              type: 'COUPON_ACTIVATED',
+              couponId: coupon.id,
+              couponCode: coupon.code,
+              discountType: coupon.discountType,
+              discountValue: coupon.discountValue,
+              agencyId: coupon.agencyId
+            }
+          })
+        );
+
+        await Promise.all(notificationPromises);
+        logger.info(`Coupon activation notifications created for ${customers.length} customers`);
+      } catch (notifError) {
+        logger.error('Error sending coupon activation notification:', notifError.message);
+      }
     }
 
     res.status(200).json({

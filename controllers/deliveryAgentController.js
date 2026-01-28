@@ -1,8 +1,9 @@
-const { DeliveryAgent } = require('../models');
+const { DeliveryAgent, AgencyOwner, User, Notification } = require('../models');
 const { createDeliveryAgent, updateDeliveryAgent, updateStatus } = require('../validations/deliveryAgentValidation');
 const { createError } = require('../utils/errorHandler');
 const logger = require('../utils/logger');
 const { Op } = require('sequelize');
+const notificationService = require('../services/notificationService');
 
 // Get socket service instance
 const getSocketService = () => {
@@ -55,18 +56,6 @@ const createAgent = async (req, res, next) => {
       return next(createError(400, 'Vehicle number already exists'));
     }
 
-    // Check if PAN card already exists
-    const existingPan = await DeliveryAgent.findOne({ where: { panCardNumber: value.panCardNumber } });
-    if (existingPan) {
-      return next(createError(400, 'PAN card number already exists'));
-    }
-
-    // Check if Aadhar card already exists
-    const existingAadhar = await DeliveryAgent.findOne({ where: { aadharCardNumber: value.aadharCardNumber } });
-    if (existingAadhar) {
-      return next(createError(400, 'Aadhar card number already exists'));
-    }
-
     // Check if driving licence already exists
     const existingLicence = await DeliveryAgent.findOne({ where: { drivingLicence: value.drivingLicence } });
     if (existingLicence) {
@@ -102,10 +91,54 @@ const createAgent = async (req, res, next) => {
       });
     }
 
+    // Send Firebase notification to agency owner about new agent
+    try {
+      const agencyOwner = await AgencyOwner.findOne({ where: { agencyId: agent.agencyId } });
+      if (agencyOwner) {
+        // Send Firebase push notification
+        if (agencyOwner.fcmToken) {
+          await notificationService.sendToDevice(
+            agencyOwner.fcmToken,
+            'New Delivery Agent Added! 🚚',
+            `${agent.name} has been added as a delivery agent.`,
+            { type: 'AGENT_CREATED', agentId: agent.id, agentName: agent.name },
+            {
+              recipientType: 'agency',
+              recipientId: agent.agencyId,
+              agencyId: agent.agencyId,
+              agentId: agent.id,
+              notificationType: 'AGENT_STATUS'
+            }
+          );
+        }
+
+        // Create database notification for agency owner
+        const agencyOwnerUser = await User.findOne({ where: { email: agencyOwner.email } });
+        if (agencyOwnerUser) {
+          await Notification.create({
+            userId: agencyOwnerUser.id,
+            title: 'New Delivery Agent Added! 🚚',
+            content: `${agent.name} has been added as a delivery agent.`,
+            notificationType: 'OTHER',
+            data: {
+              type: 'AGENT_CREATED',
+              agentId: agent.id,
+              agentName: agent.name,
+              agentEmail: agent.email,
+              agentPhone: agent.phone,
+              agencyId: agent.agencyId
+            }
+          });
+        }
+      }
+    } catch (notifError) {
+      logger.error('Error sending agent creation notification:', notifError.message);
+    }
+
     res.status(201).json({
       success: true,
       message: 'Delivery agent created successfully',
-      data: { 
+      data: {
         agent,
         ...(req.file && { imageUrl: req.file.path }) // Return cloudinary URL
       }
@@ -124,12 +157,12 @@ const getAllAgents = async (req, res, next) => {
     // If ID is provided, get specific agent
     if (id) {
       const whereClause = { id };
-      
+
       // Filter by agency if user is agency owner
       if (req.user && req.user.role === 'agency_owner' && req.user.agencyId) {
         whereClause.agencyId = req.user.agencyId;
       }
-      
+
       const agent = await DeliveryAgent.findOne({ where: whereClause });
       if (!agent) {
         return next(createError(404, 'Delivery agent not found'));
@@ -144,12 +177,12 @@ const getAllAgents = async (req, res, next) => {
 
     // Build where clause
     const whereClause = {};
-    
+
     // Filter by agency if user is agency owner
     if (req.user && req.user.role === 'agency_owner' && req.user.agencyId) {
       whereClause.agencyId = req.user.agencyId;
     }
-    
+
     if (status) {
       whereClause.status = status;
     }
@@ -243,21 +276,6 @@ const updateAgent = async (req, res, next) => {
       }
     }
 
-    // Check if PAN card is being updated and if it already exists
-    if (value.panCardNumber && value.panCardNumber !== agent.panCardNumber) {
-      const existingPan = await DeliveryAgent.findOne({ where: { panCardNumber: value.panCardNumber } });
-      if (existingPan) {
-        return next(createError(400, 'PAN card number already exists'));
-      }
-    }
-
-    // Check if Aadhar card is being updated and if it already exists
-    if (value.aadharCardNumber && value.aadharCardNumber !== agent.aadharCardNumber) {
-      const existingAadhar = await DeliveryAgent.findOne({ where: { aadharCardNumber: value.aadharCardNumber } });
-      if (existingAadhar) {
-        return next(createError(400, 'Aadhar card number already exists'));
-      }
-    }
 
     // Check if driving licence is being updated and if it already exists
     if (value.drivingLicence && value.drivingLicence !== agent.drivingLicence) {
@@ -291,10 +309,57 @@ const updateAgent = async (req, res, next) => {
       });
     }
 
+    // Send Firebase notification to agent about profile update
+    try {
+      // Find agent's user account by email or phone
+      const agentUser = await User.findOne({ 
+        where: { 
+          [Op.or]: [
+            { email: agent.email },
+            { phone: agent.phone }
+          ]
+        } 
+      });
+
+      // Send Firebase push notification
+      if (agent.fcmToken) {
+        await notificationService.sendToDevice(
+          agent.fcmToken,
+          'Profile Updated',
+          'Your delivery agent profile has been updated.',
+          { type: 'AGENT_PROFILE_UPDATED', agentId: agent.id },
+          {
+            recipientType: 'agent',
+            recipientId: agent.id,
+            agencyId: agent.agencyId,
+            agentId: agent.id,
+            notificationType: 'AGENT_STATUS'
+          }
+        );
+      }
+
+      // Create database notification for agent
+      if (agentUser) {
+        await Notification.create({
+          userId: agentUser.id,
+          title: 'Profile Updated',
+          content: 'Your delivery agent profile has been updated.',
+          notificationType: 'OTHER',
+          data: {
+            type: 'AGENT_PROFILE_UPDATED',
+            agentId: agent.id,
+            agencyId: agent.agencyId
+          }
+        });
+      }
+    } catch (notifError) {
+      logger.error('Error sending agent update notification:', notifError.message);
+    }
+
     res.status(200).json({
       success: true,
       message: 'Delivery agent updated successfully',
-      data: { 
+      data: {
         agent,
         ...(req.file && { imageUrl: req.file.path }) // Return cloudinary URL
       }
@@ -318,6 +383,54 @@ const deleteAgent = async (req, res, next) => {
     const agent = await DeliveryAgent.findOne({ where: whereClause });
     if (!agent) {
       return next(createError(404, 'Delivery agent not found'));
+    }
+
+    // Send Firebase notification to agent before deletion
+    try {
+      // Find agent's user account by email or phone
+      const agentUser = await User.findOne({ 
+        where: { 
+          [Op.or]: [
+            { email: agent.email },
+            { phone: agent.phone }
+          ]
+        } 
+      });
+
+      // Send Firebase push notification
+      if (agent.fcmToken) {
+        await notificationService.sendToDevice(
+          agent.fcmToken,
+          'Account Removed',
+          'Your delivery agent account has been removed from the system.',
+          { type: 'AGENT_DELETED', agentId: agent.id },
+          {
+            recipientType: 'agent',
+            recipientId: agent.id,
+            agencyId: agent.agencyId,
+            agentId: agent.id,
+            notificationType: 'AGENT_STATUS'
+          }
+        );
+      }
+
+      // Create database notification for agent
+      if (agentUser) {
+        await Notification.create({
+          userId: agentUser.id,
+          title: 'Account Removed',
+          content: 'Your delivery agent account has been removed from the system.',
+          notificationType: 'OTHER',
+          data: {
+            type: 'AGENT_DELETED',
+            agentId: agent.id,
+            agentName: agent.name,
+            agencyId: agent.agencyId
+          }
+        });
+      }
+    } catch (notifError) {
+      logger.error('Error sending agent deletion notification:', notifError.message);
     }
 
     await agent.destroy();
@@ -375,6 +488,68 @@ const updateAgentStatus = async (req, res, next) => {
       });
     }
 
+    // Send Firebase notification to agent about status change
+    try {
+      // Find agent's user account by email or phone
+      const agentUser = await User.findOne({ 
+        where: { 
+          [Op.or]: [
+            { email: agent.email },
+            { phone: agent.phone }
+          ]
+        } 
+      });
+
+      const statusMessages = {
+        'active': 'Your account is now active. You can receive delivery assignments.',
+        'inactive': 'Your account has been set to inactive.',
+        'busy': 'Your status has been set to busy.',
+        'offline': 'Your status has been set to offline.'
+      };
+
+      const statusTitles = {
+        'active': 'Account Activated! ✅',
+        'inactive': 'Account Deactivated',
+        'busy': 'Status Updated',
+        'offline': 'Status Updated'
+      };
+
+      // Send Firebase push notification
+      if (agent.fcmToken) {
+        await notificationService.sendToDevice(
+          agent.fcmToken,
+          statusTitles[value.status] || 'Status Updated',
+          statusMessages[value.status] || `Your status has been updated to ${value.status}.`,
+          { type: 'AGENT_STATUS_CHANGED', agentId: agent.id, status: value.status },
+          {
+            recipientType: 'agent',
+            recipientId: agent.id,
+            agencyId: agent.agencyId,
+            agentId: agent.id,
+            notificationType: 'AGENT_STATUS'
+          }
+        );
+      }
+
+      // Create database notification for agent
+      if (agentUser) {
+        await Notification.create({
+          userId: agentUser.id,
+          title: statusTitles[value.status] || 'Status Updated',
+          content: statusMessages[value.status] || `Your status has been updated to ${value.status}.`,
+          notificationType: 'OTHER',
+          data: {
+            type: 'AGENT_STATUS_CHANGED',
+            agentId: agent.id,
+            status: value.status,
+            agencyId: agent.agencyId
+          }
+        });
+      }
+    } catch (notifError) {
+      logger.error('Error sending agent status notification:', notifError.message);
+    }
+
     res.status(200).json({
       success: true,
       message: 'Agent status updated successfully',
@@ -390,7 +565,7 @@ const getAgentDetails = async (req, res, next) => {
   try {
     const userRole = req.user.role;
     const { agentId } = req.params;
-    
+
     // Check if user is admin or agency owner
     if (userRole !== 'admin' && userRole !== 'agency_owner') {
       return next(createError(403, 'Only admin and agency owners can access agent details'));
@@ -473,7 +648,7 @@ const getAgentDetails = async (req, res, next) => {
     // Get delivery performance by month (last 6 months)
     const sixMonthsAgo = new Date();
     sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-    
+
     const monthlyPerformance = orders
       .filter(order => order.deliveredAt && new Date(order.deliveredAt) >= sixMonthsAgo)
       .reduce((acc, order) => {
@@ -501,8 +676,6 @@ const getAgentDetails = async (req, res, next) => {
           email: agent.email,
           phone: agent.phone,
           vehicleNumber: agent.vehicleNumber,
-          panCardNumber: agent.panCardNumber,
-          aadharCardNumber: agent.aadharCardNumber,
           drivingLicence: agent.drivingLicence,
           bankDetails: agent.bankDetails,
           status: agent.status,

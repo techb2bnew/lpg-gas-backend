@@ -20,14 +20,6 @@ const createDeliveryAgent = Joi.object({
     'string.max': 'Vehicle number cannot exceed 20 characters',
     'any.required': 'Vehicle number is required'
   }),
-  panCardNumber: Joi.string().pattern(/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/).required().messages({
-    'string.pattern.base': 'PAN card number must be in format: ABCDE1234F',
-    'any.required': 'PAN card number is required'
-  }),
-  aadharCardNumber: Joi.string().pattern(/^[0-9]{12}$/).required().messages({
-    'string.pattern.base': 'Aadhar card number must be 12 digits',
-    'any.required': 'Aadhar card number is required'
-  }),
   drivingLicence: Joi.string().min(10).max(20).required().messages({
     'string.min': 'Driving licence must be at least 10 characters',
     'string.max': 'Driving licence cannot exceed 20 characters',
@@ -67,12 +59,6 @@ const updateDeliveryAgent = Joi.object({
   vehicleNumber: Joi.string().min(5).max(20).optional().messages({
     'string.min': 'Vehicle number must be at least 5 characters',
     'string.max': 'Vehicle number cannot exceed 20 characters'
-  }),
-  panCardNumber: Joi.string().pattern(/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/).optional().messages({
-    'string.pattern.base': 'PAN card number must be in format: ABCDE1234F'
-  }),
-  aadharCardNumber: Joi.string().pattern(/^[0-9]{12}$/).optional().messages({
-    'string.pattern.base': 'Aadhar card number must be 12 digits'
   }),
   drivingLicence: Joi.string().min(10).max(20).optional().messages({
     'string.min': 'Driving licence must be at least 10 characters',
@@ -129,12 +115,6 @@ const updateAgentProfileComprehensive = Joi.object({
   vehicleNumber: Joi.string().min(5).max(20).optional().messages({
     'string.min': 'Vehicle number must be at least 5 characters',
     'string.max': 'Vehicle number cannot exceed 20 characters'
-  }),
-  panCardNumber: Joi.string().pattern(/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/).optional().messages({
-    'string.pattern.base': 'PAN card number must be in format: ABCDE1234F'
-  }),
-  aadharCardNumber: Joi.string().pattern(/^[0-9]{12}$/).optional().messages({
-    'string.pattern.base': 'Aadhar card number must be 12 digits'
   }),
   drivingLicence: Joi.string().min(10).max(20).optional().messages({
     'string.min': 'Driving licence must be at least 10 characters',

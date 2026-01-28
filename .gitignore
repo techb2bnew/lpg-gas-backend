@@ -129,3 +129,8 @@ uploads/*
 # PM2
 .pm2/
 .vercel
+
+# Firebase service account
+firebase-service-account.json
+
+

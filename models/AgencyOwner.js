@@ -88,6 +88,15 @@ const AgencyOwner = sequelize.define('AgencyOwner', {
   state: {
     type: DataTypes.STRING,
     allowNull: true
+  },
+  // FCM Push Notification Token
+  fcmToken: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
+  fcmDeviceType: {
+    type: DataTypes.STRING,
+    allowNull: true
   }
 }, {
   tableName: 'agency_owners',

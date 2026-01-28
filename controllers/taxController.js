@@ -1,6 +1,7 @@
 const Tax = require('../models/Tax');
 const PlatformCharge = require('../models/PlatformCharge');
 const { ErrorHandler } = require('../utils/errorHandler');
+const logger = require('../utils/logger');
 
 // Add or Update Tax Configuration
 exports.addOrUpdateTax = async (req, res, next) => {

@@ -16,11 +16,6 @@ async function testForgotPassword(email) {
       // Check if agency owner exists
       const agencyOwner = await AgencyOwner.findOne({ where: { email } });
       if (agencyOwner) {
-        console.log('✅ Found agency owner');
-        console.log(`📧 Email: ${agencyOwner.email}`);
-        console.log(`🏢 Agency: ${agencyOwner.name}`);
-        console.log(`📧 Email Verified: ${agencyOwner.isEmailVerified}`);
-        console.log(`✅ Active: ${agencyOwner.isActive}`);
         
         userType = 'agency_owner';
       } else {
@@ -38,16 +33,9 @@ async function testForgotPassword(email) {
 
     // Delete any existing OTP
     await LoginOTP.destroy({ where: { email, role: userType } });
-    console.log('🧹 Deleted existing OTPs');
-
     // Create new OTP
     await LoginOTP.create({ email, otp, role: userType, expiresAt });
     console.log('✅ OTP created successfully');
-
-    console.log('\n🎉 Forgot password request successful!');
-    console.log(`📧 OTP sent to: ${email}`);
-    console.log(`🔑 OTP: ${otp}`);
-    console.log(`👤 User Type: ${userType}`);
     
   } catch (error) {
     console.error('❌ Error testing forgot password:', error);

@@ -1,5 +1,5 @@
 const { sequelize } = require('../config/database');
-const { User, Product, DeliveryAgent, Order, LoginOTP } = require('../models');
+const { User, Product, DeliveryAgent, Order, LoginOTP, Notification, Agency, AgencyInventory, AgencyOwner, TermsAndConditions, PrivacyPolicy, Category, Tax, PlatformCharge, Coupon, DeliveryCharge, Banner } = require('../models');
 
 async function syncDatabase() {
   try {
@@ -16,6 +16,18 @@ async function syncDatabase() {
     console.log('   - delivery_agents');
     console.log('   - orders');
     console.log('   - login_otps');
+    console.log('   - notifications');
+    console.log('   - agencies');
+    console.log('   - agency_inventory');
+    console.log('   - agency_owners');
+    console.log('   - categories');
+    console.log('   - taxes');
+    console.log('   - platform_charges');
+    console.log('   - coupons');
+    console.log('   - delivery_charges');
+    console.log('   - terms_and_conditions');
+    console.log('   - privacy_policies');
+    console.log('   - banners');
     
     // Create indexes manually after table creation
     console.log('🔧 Creating indexes...');

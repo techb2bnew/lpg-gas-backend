@@ -19,6 +19,7 @@ const logger = require('../utils/logger');
 const fs = require('fs');
 const path = require('path');
 const { Op } = require('sequelize');
+const notificationService = require('../services/notificationService');
 
 // Get socket service instance
 const getSocketService = () => {
@@ -53,30 +54,23 @@ const login = async (req, res, next) => {
       return next(createError(400, error.details[0].message));
     }
 
-    const { email, password } = req.body;
+    const { email, password, fcmToken, fcmDeviceType } = req.body;
     const trimmedEmail = email.trim();
     const emailWhereClause = { [Op.iLike]: trimmedEmail };
-
-    console.log('🔍 LOGIN DEBUG:', { email, passwordLength: password.length });
 
     // First try to find in User table (Admin, Customer, Agent)
     let user = await User.findOne({
       where: { email: emailWhereClause }
     });
 
-    console.log('👤 User found in User table:', !!user);
-
     let userType = 'user';
     let userData = null;
     let agencyOwnerRecord = null;
 
     if (user) {
-      console.log('🔐 User found - checking password...');
       // Verify password for User
       const isPasswordValid = await user.comparePassword(password);
-      console.log('✅ User password valid:', isPasswordValid);
       if (!isPasswordValid) {
-        console.log('❌ User password invalid');
         return next(createError(401, 'Invalid email or password'));
       }
 
@@ -86,39 +80,37 @@ const login = async (req, res, next) => {
         return next(createError(403, 'Your account is blocked by admin please contact.'));
       }
 
+      // Check if customer is trying to login but same email exists as delivery agent
+      if (user.role === 'customer') {
+        const existingAgent = await DeliveryAgent.findOne({
+          where: { email: emailWhereClause }
+        });
+        
+        if (existingAgent) {
+          logger.warn(`Customer login blocked - email exists as delivery agent: ${email}`);
+          return next(createError(403, 'This email is already registered as a delivery agent. Please use the delivery agent login.'));
+        }
+      }
+
       userType = user.role;
       userData = user.toPublicJSON();
     } else {
-      console.log('👤 User not found in User table, checking AgencyOwner...');
       // If not found in User table, try AgencyOwner table
       const agencyOwner = await AgencyOwner.findOne({
         where: { email: emailWhereClause }
       });
       agencyOwnerRecord = agencyOwner;
 
-      console.log('🏢 AgencyOwner found:', !!agencyOwner);
       if (agencyOwner) {
-        console.log('🔐 AgencyOwner found - checking details...');
-        console.log('📧 AgencyOwner email:', agencyOwner.email);
-        console.log('✅ AgencyOwner isActive:', agencyOwner.isActive);
-        console.log('✅ AgencyOwner isEmailVerified:', agencyOwner.isEmailVerified);
-        console.log('🔑 AgencyOwner password hash length:', agencyOwner.password.length);
-        console.log('🔑 AgencyOwner password starts with $2b$:', agencyOwner.password.indexOf('$2b$') === 0);
-        
         // Verify password for AgencyOwner
         const isPasswordValid = await agencyOwner.comparePassword(password);
-        console.log('✅ AgencyOwner password valid:', isPasswordValid);
         
         if (!isPasswordValid) {
-          console.log('❌ AgencyOwner password invalid');
-          console.log('🔍 Password being tested:', password);
-          console.log('🔍 Stored hash:', agencyOwner.password);
           return next(createError(401, 'Invalid email or password'));
         }
 
         // Check if agency owner is active
         if (!agencyOwner.isActive) {
-          console.log('❌ AgencyOwner account inactive');
           return next(createError(403, 'Your Account is inactive Please Contact Admin.'));
         }
 
@@ -137,15 +129,16 @@ const login = async (req, res, next) => {
           city: agencyOwner.city,
           pincode: agencyOwner.pincode,
           state: agencyOwner.state,
+          fcmToken: fcmToken,
+          fcmDeviceType: fcmDeviceType,
           createdAt: agencyOwner.createdAt,
           updatedAt: agencyOwner.updatedAt
         };
 
+       
         // Update last login time
         await agencyOwner.update({ lastLoginAt: new Date() });
-        console.log('✅ AgencyOwner login successful!');
       } else {
-        console.log('❌ No AgencyOwner found with email:', email);
         return next(createError(401, 'Invalid email or password'));
       }
     }
@@ -168,8 +161,6 @@ const login = async (req, res, next) => {
     }
 
     const token = generateToken(userData.id, userData.role || userType, additionalData);
-
-    logger.info(`User logged in: ${email} (${userType})`);
 
     // Emit socket notification for user login
     const socketService = getSocketService();
@@ -254,22 +245,14 @@ const setupUser = async (req, res, next) => {
 // Get current user profile
 const getProfile = async (req, res, next) => {
   try {
-    console.log('🔍 PROFILE DEBUG - User ID:', req.user.userId);
-    console.log('🔍 PROFILE DEBUG - User role:', req.user.role);
-    
     let user = await User.findByPk(req.user.userId);
     let userData = null;
-    
-    console.log('🔍 PROFILE DEBUG - User found in User table:', !!user);
-    
     if (user) {
       // User found in User table
       userData = user.toPublicJSON();
     } else {
       // Check AgencyOwner table
-      console.log('🔍 PROFILE DEBUG - Checking AgencyOwner table...');
       const agencyOwner = await AgencyOwner.findByPk(req.user.userId);
-      console.log('🔍 PROFILE DEBUG - AgencyOwner found:', !!agencyOwner);
       if (agencyOwner) {
         // Get agency status for agency owner
         const { Agency } = require('../models');
@@ -343,8 +326,6 @@ const getProfile = async (req, res, next) => {
             name: deliveryAgent.name,
             phone: deliveryAgent.phone,
             vehicleNumber: deliveryAgent.vehicleNumber,
-            panCardNumber: deliveryAgent.panCardNumber,
-            aadharCardNumber: deliveryAgent.aadharCardNumber,
             drivingLicence: deliveryAgent.drivingLicence,
             bankDetails: deliveryAgent.bankDetails,
             status: deliveryAgent.status,
@@ -382,8 +363,6 @@ const getProfile = async (req, res, next) => {
             name: deliveryAgent.name,
             phone: deliveryAgent.phone,
             vehicleNumber: deliveryAgent.vehicleNumber,
-            panCardNumber: deliveryAgent.panCardNumber,
-            aadharCardNumber: deliveryAgent.aadharCardNumber,
             drivingLicence: deliveryAgent.drivingLicence,
             bankDetails: deliveryAgent.bankDetails,
             status: deliveryAgent.status,
@@ -393,6 +372,7 @@ const getProfile = async (req, res, next) => {
         }
       }
     }
+
 
     res.status(200).json({
       success: true,
@@ -433,7 +413,6 @@ const completeCustomerProfile = async (req, res, next) => {
       registeredAt: new Date()
     });
 
-    logger.info(`Customer profile completed: ${user.email}`);
 
     res.status(200).json({
       success: true,
@@ -503,8 +482,6 @@ const completeAgentProfile = async (req, res, next) => {
           name: deliveryAgent.name,
           phone: deliveryAgent.phone,
           vehicleNumber: deliveryAgent.vehicleNumber,
-          panCardNumber: deliveryAgent.panCardNumber,
-          aadharCardNumber: deliveryAgent.aadharCardNumber,
           drivingLicence: deliveryAgent.drivingLicence,
           bankDetails: deliveryAgent.bankDetails,
           status: deliveryAgent.status
@@ -615,8 +592,6 @@ const updateProfile = async (req, res, next) => {
           name: deliveryAgent.name,
           phone: deliveryAgent.phone,
           vehicleNumber: deliveryAgent.vehicleNumber,
-          panCardNumber: deliveryAgent.panCardNumber,
-          aadharCardNumber: deliveryAgent.aadharCardNumber,
           drivingLicence: deliveryAgent.drivingLicence,
           bankDetails: deliveryAgent.bankDetails,
           status: deliveryAgent.status,
@@ -657,10 +632,8 @@ const requestOTP = async (req, res, next) => {
     if (role === 'agent') {
       const agent = await DeliveryAgent.findOne({ where: { email } });
       if (!agent) {
-        logger.warn(`Unauthorized agent login attempt: ${email}`);
         return next(createError(403, 'You are not registered as a delivery agent. Please contact admin.'));
       }
-      logger.info(`Agent login request from: ${email} (${agent.name})`);
     }
 
     // Check if user exists with this email and role
@@ -679,12 +652,10 @@ const requestOTP = async (req, res, next) => {
         role,
         isProfileComplete: false
       });
-      logger.info(`Temporary ${role} user created: ${email}`);
     }
 
     // Blocked user cannot request OTP
     if (user.isBlocked) {
-      logger.warn(`Blocked user attempted OTP request: ${email} (${role})`);
       return next(createError(403, 'Your account is blocked by admin please contact.'));
     }
 
@@ -733,14 +704,20 @@ const verifyOTP = async (req, res, next) => {
       return next(createError(400, error.details[0].message));
     }
 
-    const { email, otp, role } = value;
+    const { email, otp, role, fcmToken, fcmDeviceType } = value;
 
     // For agent role, double-check if agent exists in delivery_agents table
     if (role === 'agent') {
       const agent = await DeliveryAgent.findOne({ where: { email } });
       if (!agent) {
-        logger.warn(`Unauthorized agent OTP verification attempt: ${email}`);
         return next(createError(403, 'You are not registered as a delivery agent. Please contact admin.'));
+      }
+      // Update agent's FCM token if provided
+      if (fcmToken) {
+        await agent.update({
+          fcmToken: fcmToken,
+          fcmDeviceType: fcmDeviceType || null
+        });
       }
     }
 
@@ -771,6 +748,26 @@ const verifyOTP = async (req, res, next) => {
     if (user.isBlocked) {
       logger.warn(`Blocked user attempted OTP verify: ${email} (${role})`);
       return next(createError(403, 'Your account is blocked by admin please contact.'));
+    }
+
+    // Check if customer is trying to login but same email exists as delivery agent
+    if (user.role === 'customer') {
+      const existingAgent = await DeliveryAgent.findOne({
+        where: { email: { [Op.iLike]: email.trim() } }
+      });
+      
+      if (existingAgent) {
+        logger.warn(`Customer OTP login blocked - email exists as delivery agent: ${email}`);
+        return next(createError(403, 'This email is already registered as a delivery agent. Please use the delivery agent login.'));
+      }
+    }
+
+    // Update user's FCM token if provided
+    if (fcmToken) {
+      await user.update({
+        fcmToken: fcmToken,
+        fcmDeviceType: fcmDeviceType || null
+      });
     }
 
     // Generate token with role and additional data
@@ -815,8 +812,6 @@ const verifyOTP = async (req, res, next) => {
           email: deliveryAgent.email,
           phone: deliveryAgent.phone,
           vehicleNumber: deliveryAgent.vehicleNumber,
-          panCardNumber: deliveryAgent.panCardNumber,
-          aadharCardNumber: deliveryAgent.aadharCardNumber,
           drivingLicence: deliveryAgent.drivingLicence,
           bankDetails: deliveryAgent.bankDetails,
           status: deliveryAgent.status,
@@ -841,7 +836,6 @@ const logout = async (req, res, next) => {
   try {
     // In a simple system, we just return success
     // In production, you might want to blacklist the token
-    logger.info(`User logged out: ${req.user.userId}`);
 
     res.status(200).json({
       success: true,
@@ -907,7 +901,6 @@ const forgotPasswordRequest = async (req, res, next) => {
         const { sendEmail } = require('../config/email');
         await sendEmail(email, 'passwordResetOTP', { email, otp });
 
-        logger.info(`Password reset OTP sent to agency owner ${email}`);
       } else {
         return next(createError(404, 'Account not found'));
       }
@@ -932,6 +925,8 @@ const resetPassword = async (req, res, next) => {
     }
 
     const { email, otp, newPassword } = value;
+    const trimmedEmail = email.trim();
+    const emailWhereClause = { [Op.iLike]: trimmedEmail };
 
     // Try to find OTP record for admin first
     let otpRecord = await LoginOTP.findOne({
@@ -974,8 +969,6 @@ const resetPassword = async (req, res, next) => {
 
     // Mark OTP as used
     await otpRecord.update({ isUsed: true });
-
-    logger.info(`${userType} password reset successful for ${email}`);
 
     res.status(200).json({
       success: true,
@@ -1318,8 +1311,6 @@ const updateAgentProfile = async (req, res, next) => {
           email: updatedAgent.email,
           phone: updatedAgent.phone,
           vehicleNumber: updatedAgent.vehicleNumber,
-          panCardNumber: updatedAgent.panCardNumber,
-          aadharCardNumber: updatedAgent.aadharCardNumber,
           drivingLicence: updatedAgent.drivingLicence,
           bankDetails: updatedAgent.bankDetails,
           status: updatedAgent.status,
@@ -1386,8 +1377,6 @@ const updateAgentProfileComplete = async (req, res, next) => {
       address, 
       addresses,
       vehicleNumber,
-      panCardNumber,
-      aadharCardNumber,
       drivingLicence,
       bankDetails,
       status
@@ -1412,8 +1401,6 @@ const updateAgentProfileComplete = async (req, res, next) => {
     if (name !== undefined) agentUpdateData.name = name;
     if (phone !== undefined) agentUpdateData.phone = phone;
     if (vehicleNumber !== undefined) agentUpdateData.vehicleNumber = vehicleNumber;
-    if (panCardNumber !== undefined) agentUpdateData.panCardNumber = panCardNumber;
-    if (aadharCardNumber !== undefined) agentUpdateData.aadharCardNumber = aadharCardNumber;
     if (drivingLicence !== undefined) agentUpdateData.drivingLicence = drivingLicence;
     if (bankDetails !== undefined) agentUpdateData.bankDetails = bankDetails;
     if (status !== undefined) agentUpdateData.status = status;
@@ -1426,24 +1413,6 @@ const updateAgentProfileComplete = async (req, res, next) => {
       });
       if (existingVehicle) {
         return next(createError(400, 'Vehicle number already exists'));
-      }
-    }
-
-    if (panCardNumber && panCardNumber !== deliveryAgent.panCardNumber) {
-      const existingPan = await DeliveryAgent.findOne({ 
-        where: { panCardNumber, id: { [Op.ne]: deliveryAgent.id } } 
-      });
-      if (existingPan) {
-        return next(createError(400, 'PAN card number already exists'));
-      }
-    }
-
-    if (aadharCardNumber && aadharCardNumber !== deliveryAgent.aadharCardNumber) {
-      const existingAadhar = await DeliveryAgent.findOne({ 
-        where: { aadharCardNumber, id: { [Op.ne]: deliveryAgent.id } } 
-      });
-      if (existingAadhar) {
-        return next(createError(400, 'Aadhar card number already exists'));
       }
     }
 
@@ -1475,8 +1444,6 @@ const updateAgentProfileComplete = async (req, res, next) => {
           email: updatedAgent.email,
           phone: updatedAgent.phone,
           vehicleNumber: updatedAgent.vehicleNumber,
-          panCardNumber: updatedAgent.panCardNumber,
-          aadharCardNumber: updatedAgent.aadharCardNumber,
           drivingLicence: updatedAgent.drivingLicence,
           bankDetails: updatedAgent.bankDetails,
           status: updatedAgent.status,
@@ -1535,7 +1502,6 @@ const updateAgentStatus = async (req, res, next) => {
     // Get updated data
     const updatedAgent = await DeliveryAgent.findByPk(deliveryAgent.id);
 
-    logger.info(`Agent status updated: ${user.email} - ${status}`);
 
     // Emit socket notification for agent status change
     const socketService = getSocketService();
@@ -1563,8 +1529,6 @@ const updateAgentStatus = async (req, res, next) => {
           email: updatedAgent.email,
           phone: updatedAgent.phone,
           vehicleNumber: updatedAgent.vehicleNumber,
-          panCardNumber: updatedAgent.panCardNumber,
-          aadharCardNumber: updatedAgent.aadharCardNumber,
           drivingLicence: updatedAgent.drivingLicence,
           bankDetails: updatedAgent.bankDetails,
           status: updatedAgent.status,
@@ -1697,7 +1661,6 @@ const getCustomerDetails = async (req, res, next) => {
       paymentReceived: order.paymentReceived
     }));
 
-    logger.info(`Customer details accessed: ${customer.email} by ${userRole} ${req.user.userId}`);
 
     res.status(200).json({
       success: true,

@@ -201,14 +201,6 @@ const getAllProducts = async (req, res, next) => {
       });
     }
 
-    console.log('🔍 DEBUG: API Call Details:', {
-      user: req.user ? req.user.email : 'No user',
-      role: req.user ? req.user.role : 'No role',
-      status: status,
-      whereClause: whereClause,
-      agencyId: agencyId
-    });
-
     const products = await Product.findAndCountAll({
       where: whereClause,
       include: includeOptions,
@@ -510,13 +502,6 @@ const updateProductStatus = async (req, res, next) => {
         include: [{ model: Agency, as: 'Agency', attributes: ['id', 'name'] }]
       });
 
-      logger.info(`📤 Emitting global product status change for ${agenciesWithProduct.length} agencies`);
-      logger.info(`📤 Agencies with product:`, agenciesWithProduct.map(ai => ({ 
-        agencyId: ai.Agency.id, 
-        agencyName: ai.Agency.name,
-        currentIsActive: ai.isActive 
-      })));
-
       // Emit to each agency that has this product
       agenciesWithProduct.forEach(agencyInventory => {
         const inventoryData = {
@@ -526,11 +511,10 @@ const updateProductStatus = async (req, res, next) => {
           agencyName: agencyInventory.Agency.name,
           stock: agencyInventory.stock,
           lowStockThreshold: agencyInventory.lowStockThreshold,
-          isActive: value.status === 'active' ? agencyInventory.isActive : false, // If product is inactive globally, set isActive to false
+          isActive: value.status === 'active' ? agencyInventory.isActive : false,
           action: 'global_status_updated'
         };
         
-        logger.info(`📤 Emitting to agency ${agencyInventory.Agency.name}:`, inventoryData);
         socketService.emitInventoryUpdated(inventoryData);
       });
 
@@ -905,7 +889,6 @@ const updateAgencyInventory = async (req, res, next) => {
 
     // Emit socket notification
     const socketService = global.socketService;
-    logger.info(`🔌 Socket service available: ${!!socketService}`);
     if (socketService) {
       const inventoryData = {
         productId: inventory.Product.id,
@@ -918,7 +901,6 @@ const updateAgencyInventory = async (req, res, next) => {
         action: 'updated'
       };
       
-      logger.info(`📤 Emitting inventory update with data:`, JSON.stringify(inventoryData, null, 2));
       socketService.emitInventoryUpdated(inventoryData);
 
       // Check for low stock alert
@@ -1080,9 +1062,15 @@ const removeProductFromAgency = async (req, res, next) => {
       return next(createError(404, 'Inventory not found'));
     }
 
+    // Store product and agency info before deletion for notification
+    const productName = inventory.Product.productName;
+    const removedProductId = inventory.Product.id;
+    const agencyName = inventory.Agency.name;
+    const deletedAgencyId = inventory.Agency.id;
+
     await inventory.destroy();
 
-    logger.info(`Product removed from agency inventory: ${inventory.Product.productName} -> ${inventory.Agency.name}`);
+    logger.info(`Product removed from agency inventory: ${productName} -> ${agencyName}`);
 
     res.status(200).json({
       success: true,

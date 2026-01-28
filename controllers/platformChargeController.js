@@ -1,5 +1,6 @@
 const PlatformCharge = require('../models/PlatformCharge');
 const { ErrorHandler } = require('../utils/errorHandler');
+const logger = require('../utils/logger');
 
 // Add or Update Platform Charge
 exports.addOrUpdatePlatformCharge = async (req, res, next) => {
