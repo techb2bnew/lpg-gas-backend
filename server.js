@@ -50,15 +50,18 @@ config.sequelize.authenticate()
     });
   })
   .catch((error) => {
+    console.error("❌ Startup failed:", error);
     process.exit(1);
   });
 
 // Handle unhandled promise rejections
 process.on('unhandledRejection', (err) => {
+  console.error("❌ unhandledRejection:", err);
   process.exit(1);
 });
 
 // Handle uncaught exceptions
 process.on('uncaughtException', (err) => {
+  console.error("❌ uncaughtException:", err);
   process.exit(1);
 });
