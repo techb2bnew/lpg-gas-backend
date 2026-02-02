@@ -1,0 +1,44 @@
+name: Auto Deploy to AWS EC2
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_KEY }}
+          script: |
+            set -e
+
+            echo "⬇️ Pull latest code"
+            cd ~/leadway_gas
+            git pull origin main
+
+            echo "📦 Backend install"
+            cd lpg-gas-backend
+            npm install --production
+
+            echo "♻️ Reload backend"
+            pm2 reload lpg-gas-backend
+
+            echo "📦 Frontend install"
+            cd ../lpg-gas-admin-agency
+            npm install
+            npm run build
+
+            echo "♻️ Reload frontend"
+            pm2 reload lpg-gas-admin
+
+            pm2 save
