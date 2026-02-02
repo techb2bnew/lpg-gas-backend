@@ -19,6 +19,10 @@ const sequelize = new Sequelize(
       maxUses: 50           // Recycle connections after 50 uses
     },
     dialectOptions: {
+        ssl: {
+        require: true,
+        rejectUnauthorized: false
+      },
       connectTimeout: 20000,  // Connection timeout (20 seconds)
       statement_timeout: 10000, // Query timeout (10 seconds - aggressive)
       idle_in_transaction_session_timeout: 10000, // Prevent hanging transactions
