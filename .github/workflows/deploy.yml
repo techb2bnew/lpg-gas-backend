@@ -21,24 +21,26 @@ jobs:
           key: ${{ secrets.EC2_KEY }}
           script: |
             set -e
-
-            echo "⬇️ Pull latest code"
-            cd ~/leadway_gas
+          
+            echo "⬇️ Pull latest backend code"
+            cd ~/leadway_gas/lpg-gas-backend
             git pull origin main
-
+          
             echo "📦 Backend install"
-            cd lpg-gas-backend
             npm install --production
-
+          
             echo "♻️ Reload backend"
             pm2 reload lpg-gas-backend
-
-            echo "📦 Frontend install"
+          
+            echo "⬇️ Pull latest frontend code"
             cd ../lpg-gas-admin-agency
+            git pull origin main
+          
+            echo "📦 Frontend install & build"
             npm install
             npm run build
-
+          
             echo "♻️ Reload frontend"
             pm2 reload lpg-gas-admin
-
+          
             pm2 save
