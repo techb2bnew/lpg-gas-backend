@@ -20,10 +20,10 @@ const addAddress = Joi.object({
     'string.max': 'City cannot exceed 50 characters',
     'any.required': 'City is required'
   }),
-  pincode: Joi.string().pattern(/^[0-9]{6}$/).required().messages({
-    'string.pattern.base': 'PIN code must be 6 digits',
-    'any.required': 'PIN code is required'
-  }),
+  // pincode: Joi.string().pattern(/^[0-9]{6}$/).required().messages({
+  //   'string.pattern.base': 'PIN code must be 6 digits',
+  //   'any.required': 'PIN code is required'
+  // }),
   landmark: Joi.string().max(100).optional().allow('').messages({
     'string.max': 'Landmark cannot exceed 100 characters'
   })
