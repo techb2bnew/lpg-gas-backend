@@ -83,7 +83,7 @@ exports.addCoupon = async (req, res, next) => {
       
       const discountText = coupon.discountType === 'percentage' 
         ? `${coupon.discountValue}% OFF` 
-        : `$${coupon.discountValue} OFF`;
+        : `KSH${coupon.discountValue} OFF`;
       
       // Send Firebase push notifications
       if (customerTokens.length > 0) {
@@ -280,7 +280,7 @@ exports.updateCoupon = async (req, res, next) => {
         
         const discountText = coupon.discountType === 'percentage' 
           ? `${coupon.discountValue}% OFF` 
-          : `$${coupon.discountValue} OFF`;
+          : `KSH${coupon.discountValue} OFF`;
         
         // Send Firebase push notifications
         if (customerTokens.length > 0) {
@@ -379,7 +379,7 @@ exports.toggleCouponStatus = async (req, res, next) => {
         
         const discountText = coupon.discountType === 'percentage' 
           ? `${coupon.discountValue}% OFF` 
-          : `$${coupon.discountValue} OFF`;
+          : `KSH${coupon.discountValue} OFF`;
         
         // Send Firebase push notifications
         if (customerTokens.length > 0) {
@@ -565,12 +565,12 @@ exports.applyCoupon = async (req, res, next) => {
 
     // Check minimum amount
     if (amount < coupon.minAmount) {
-      return next(createError(400, `Minimum amount required: $${coupon.minAmount}`));
+      return next(createError(400, `Minimum amount required: KSH${coupon.minAmount}`));
     }
 
     // Check maximum amount
     if (coupon.maxAmount && amount > coupon.maxAmount) {
-      return next(createError(400, `Maximum amount allowed: $${coupon.maxAmount}`));
+      return next(createError(400, `Maximum amount allowed: KSH${coupon.maxAmount}`));
     }
 
     // Calculate discount

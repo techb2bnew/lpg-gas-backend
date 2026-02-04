@@ -69,8 +69,8 @@ const create = async (req, res, next) => {
       const agencyOwner = await AgencyOwner.findOne({ where: { agencyId: value.agencyId } });
       if (agencyOwner && agencyOwner.fcmToken) {
         const chargeText = deliveryCharge.chargeType === 'fixed' 
-          ? `Fixed: $${deliveryCharge.fixedAmount}` 
-          : `$${deliveryCharge.ratePerKm}/km`;
+          ? `Fixed: KSH${deliveryCharge.fixedAmount}` 
+          : `KSH${deliveryCharge.ratePerKm}/km`;
         
         await notificationService.sendToDevice(
           agencyOwner.fcmToken,
@@ -252,8 +252,8 @@ const update = async (req, res, next) => {
       const agencyOwner = await AgencyOwner.findOne({ where: { agencyId: deliveryCharge.agencyId } });
       if (agencyOwner && agencyOwner.fcmToken) {
         const chargeText = deliveryCharge.chargeType === 'fixed' 
-          ? `Fixed: $${deliveryCharge.fixedAmount}` 
-          : `$${deliveryCharge.ratePerKm}/km`;
+          ? `Fixed: KSH${deliveryCharge.fixedAmount}` 
+          : `KSH${deliveryCharge.ratePerKm}/km`;
         
         await notificationService.sendToDevice(
           agencyOwner.fcmToken,

@@ -48,7 +48,7 @@ const testDeliveryCharge = async () => {
     });
     console.log('✅ Kilometer-wise charge created successfully');
     console.log(`   ID: ${kmCharge.id}`);
-    console.log(`   Rate: $${kmCharge.ratePerKm}/km\n`);
+    console.log(`   Rate: KSH${kmCharge.ratePerKm}/km\n`);
 
     // Test 2: Read delivery charge
     console.log('6️⃣ TEST 2: Reading delivery charge...');
@@ -62,7 +62,7 @@ const testDeliveryCharge = async () => {
     console.log('✅ Charge read successfully');
     console.log(`   Agency: ${readCharge.Agency.name}`);
     console.log(`   Type: ${readCharge.chargeType}`);
-    console.log(`   Rate: $${readCharge.ratePerKm}/km\n`);
+    console.log(`   Rate: KSH${readCharge.ratePerKm}/km\n`);
 
     // Test 3: Update to fixed charge
     console.log('7️⃣ TEST 3: Updating to fixed delivery charge...');
@@ -72,7 +72,7 @@ const testDeliveryCharge = async () => {
       fixedAmount: 50.00
     });
     console.log('✅ Updated to fixed charge');
-    console.log(`   Fixed Amount: $${kmCharge.fixedAmount}\n`);
+    console.log(`   Fixed Amount: KSH${kmCharge.fixedAmount}\n`);
 
     // Test 4: Get by agency ID
     console.log('8️⃣ TEST 4: Getting charge by agency ID...');
@@ -81,7 +81,7 @@ const testDeliveryCharge = async () => {
     });
     console.log('✅ Charge found by agency ID');
     console.log(`   Type: ${chargeByAgency.chargeType}`);
-    console.log(`   Amount: $${chargeByAgency.fixedAmount}\n`);
+    console.log(`   Amount: KSH${chargeByAgency.fixedAmount}\n`);
 
     // Test 5: Validation test (should fail)
     console.log('9️⃣ TEST 5: Testing validation (should fail)...');

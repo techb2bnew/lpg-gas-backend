@@ -104,7 +104,7 @@ const createOrderHandler = async (req, res, next) => {
       // Validate that customer sent correct price
       const customerSentPrice = parseFloat(item.variantPrice);
       if (Math.abs(customerSentPrice - actualPrice) > 0.01) {
-        return next(createError(400, `Invalid price for ${product.productName} (${item.variantLabel}). Expected: $${actualPrice}, Got: $${customerSentPrice}`));
+        return next(createError(400, `Invalid price for ${product.productName} (${item.variantLabel}). Expected: KSH${actualPrice}, Got: KSH${customerSentPrice}`));
       }
 
       // Calculate product amount (without tax)
@@ -184,11 +184,11 @@ const createOrderHandler = async (req, res, next) => {
 
       // Check minimum and maximum amount against subtotal only
       if (calculatedSubtotal < coupon.minAmount) {
-        return next(createError(400, `Minimum amount required for this coupon: $${coupon.minAmount}`));
+        return next(createError(400, `Minimum amount required for this coupon: KSH${coupon.minAmount}`));
       }
 
       if (coupon.maxAmount && calculatedSubtotal > coupon.maxAmount) {
-        return next(createError(400, `Maximum amount allowed for this coupon: $${coupon.maxAmount}`));
+        return next(createError(400, `Maximum amount allowed for this coupon: KSH${coupon.maxAmount}`));
       }
 
       // Calculate discount on subtotal only
