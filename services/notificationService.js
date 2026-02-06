@@ -60,9 +60,18 @@ class NotificationService {
         apns: {
           payload: {
             aps: {
+              alert: {
+                title: title,
+                body: body
+              },
               sound: 'default',
-              badge: options.badge || 1
+              badge: options.badge || 1,
+              contentAvailable: true, // Enable background notifications for iOS
+              mutableContent: true // Allow notification extensions
             }
+          },
+          headers: {
+            'apns-priority': '10' // High priority for iOS
           }
         }
       };
