@@ -432,30 +432,49 @@ const createOrderHandler = async (req, res, next) => {
         
         // Send Firebase push notification to customer
         if (customer.fcmToken) {
+          console.log(`📧 [ORDER CREATE] Sending notification to customer: ${customer.email}`, {
+            fcmToken: customer.fcmToken ? `${customer.fcmToken.substring(0, 30)}...` : 'NO TOKEN',
+            fcmDeviceType: customer.fcmDeviceType || 'unknown',
+            orderNumber: order.orderNumber,
+            tokenLength: customer.fcmToken ? customer.fcmToken.length : 0
+          });
+          
           logger.info(`📧 Sending order creation notification to customer: ${customer.email}`, {
             fcmToken: customer.fcmToken ? `${customer.fcmToken.substring(0, 20)}...` : 'NO TOKEN',
             fcmDeviceType: customer.fcmDeviceType || 'unknown',
             orderNumber: order.orderNumber
           });
           
-          await notificationService.sendOrderStatusNotification(customer.fcmToken, {
-            id: order.id,
-            orderNumber: order.orderNumber,
-            status: 'pending',
-            userId: customer.id,
-            agencyId: order.agencyId
-          }, {
-            recipientType: 'user',
-            recipientId: customer.id,
-            orderId: order.id,
-            agencyId: order.agencyId,
-            notificationType: 'ORDER_STATUS',
-            deviceType: customer.fcmDeviceType || 'unknown',
-            badge: 1
-          });
+          try {
+            const notifResult = await notificationService.sendOrderStatusNotification(customer.fcmToken, {
+              id: order.id,
+              orderNumber: order.orderNumber,
+              status: 'pending',
+              userId: customer.id,
+              agencyId: order.agencyId
+            }, {
+              recipientType: 'user',
+              recipientId: customer.id,
+              orderId: order.id,
+              agencyId: order.agencyId,
+              notificationType: 'ORDER_STATUS',
+              deviceType: customer.fcmDeviceType || 'unknown',
+              badge: 1
+            });
+            
+            console.log(`✅ [ORDER CREATE] Notification result:`, notifResult);
+            logger.info(`✅ Order creation notification sent:`, notifResult);
+          } catch (notifError) {
+            console.error(`❌ [ORDER CREATE] Notification send failed:`, notifError.message, notifError);
+            logger.error(`❌ Failed to send order creation notification:`, notifError);
+          }
         } else {
+          console.warn(`⚠️ [ORDER CREATE] Customer has no FCM token: ${order.customerEmail}`);
           logger.warn(`⚠️ Customer has no FCM token for order creation notification (customerEmail: ${order.customerEmail})`);
         }
+      } else {
+        console.warn(`⚠️ [ORDER CREATE] Customer not found: ${order.customerEmail}`);
+        logger.warn(`⚠️ Customer not found for order creation notification (customerEmail: ${order.customerEmail})`);
       }
 
       // 2. Create notification for agency owner

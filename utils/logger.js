@@ -28,19 +28,21 @@ const logger = winston.createLogger({
       filename: path.join(__dirname, '../logs/combined.log'),
       maxsize: 5242880, // 5MB
       maxFiles: 5
+    }),
+    // Always log to console (including production) for notification debugging
+    new winston.transports.Console({
+      format: winston.format.combine(
+        winston.format.colorize(),
+        winston.format.simple(),
+        winston.format.printf(({ level, message, ...meta }) => {
+          if (typeof message === 'string' && (message.includes('📱') || message.includes('📧') || message.includes('✅') || message.includes('❌') || message.includes('Notification'))) {
+            return `${level}: ${message} ${Object.keys(meta).length ? JSON.stringify(meta, null, 2) : ''}`;
+          }
+          return `${level}: ${message}`;
+        })
+      )
     })
   ]
 });
-
-// If we're not in production then log to the `console` with the format:
-// `${info.level}: ${info.message} JSON.stringify({ ...rest }) `
-if (process.env.NODE_ENV !== 'production') {
-  logger.add(new winston.transports.Console({
-    format: winston.format.combine(
-      winston.format.colorize(),
-      winston.format.simple()
-    )
-  }));
-}
 
 module.exports = logger;

@@ -77,6 +77,15 @@ class NotificationService {
       };
 
       // Log iOS payload for debugging
+      console.log(`📱 [FCM SEND] iOS APNs payload:`, JSON.stringify({
+        alert: message.apns.payload.aps.alert,
+        sound: message.apns.payload.aps.sound,
+        badge: message.apns.payload.aps.badge,
+        contentAvailable: message.apns.payload.aps.contentAvailable,
+        mutableContent: message.apns.payload.aps.mutableContent,
+        priority: message.apns.headers['apns-priority']
+      }, null, 2));
+      
       logger.debug(`📱 iOS APNs payload:`, {
         alert: message.apns.payload.aps.alert,
         sound: message.apns.payload.aps.sound,
@@ -86,7 +95,9 @@ class NotificationService {
         priority: message.apns.headers['apns-priority']
       });
 
+      console.log(`📤 [FCM SEND] Sending notification to token: ${fcmToken.substring(0, 30)}...`);
       const response = await messaging.send(message);
+      console.log(`✅ [FCM SEND] Notification sent successfully: ${response}`);
       logger.info(`✅ Notification sent successfully: ${response}`);
       return { success: true, messageId: response };
     } catch (error) {
@@ -98,12 +109,19 @@ class NotificationService {
       ];
       
       if (!skipErrorCodes.includes(error.code)) {
+        console.error(`❌ [FCM SEND] Error:`, {
+          code: error.code,
+          message: error.message,
+          token: fcmToken ? `${fcmToken.substring(0, 30)}...` : 'no token',
+          stack: error.stack
+        });
         logger.error('FCM send error:', {
           code: error.code,
           message: error.message,
           token: fcmToken ? `${fcmToken.substring(0, 20)}...` : 'no token'
         });
       } else {
+        console.log(`⚠️ [FCM SEND] Token error (skipped): ${error.code} - ${error.message}`);
         logger.debug(`FCM token error (skipped): ${error.code}`);
       }
       return { success: false, error: error.message, code: error.code };
@@ -343,6 +361,14 @@ class NotificationService {
     const orderNumber = orderData.orderNumber || orderData.id?.substring(0, 8) || 'N/A';
     
     // Log notification details for debugging
+    console.log(`📱 [NOTIFICATION SERVICE] Sending order status notification:`, {
+      orderNumber: orderNumber,
+      status: orderData.status,
+      fcmToken: fcmToken ? `${fcmToken.substring(0, 30)}...` : 'NO TOKEN',
+      tokenLength: fcmToken ? fcmToken.length : 0,
+      deviceType: options.deviceType || 'unknown'
+    });
+    
     logger.info(`📱 Sending order status notification:`, {
       orderNumber: orderNumber,
       status: orderData.status,
@@ -385,11 +411,21 @@ class NotificationService {
 
     // Validate FCM token before sending
     if (!fcmToken || !fcmToken.trim()) {
+      console.error(`❌ [NOTIFICATION SERVICE] Cannot send notification - FCM token is empty for order ${orderNumber}`);
       logger.error(`❌ Cannot send notification - FCM token is empty for order ${orderNumber}`);
       return { success: false, error: 'FCM token is required' };
     }
 
     // Log notification payload details
+    console.log(`📤 [NOTIFICATION SERVICE] Notification payload:`, {
+      title: title,
+      body: body.substring(0, 50) + '...',
+      hasAlert: true, // iOS alert object will be added in sendToDevice
+      deviceType: options.deviceType || 'unknown',
+      orderNumber: orderNumber,
+      data: JSON.stringify(data)
+    });
+    
     logger.info(`📤 Notification payload:`, {
       title: title,
       body: body.substring(0, 50) + '...',
@@ -402,8 +438,10 @@ class NotificationService {
     
     // Log result
     if (result.success) {
+      console.log(`✅ [NOTIFICATION SERVICE] Notification sent successfully for order ${orderNumber}`);
       logger.info(`✅ Notification sent successfully for order ${orderNumber}`);
     } else {
+      console.error(`❌ [NOTIFICATION SERVICE] Failed to send notification for order ${orderNumber}:`, result.error, result.code);
       logger.error(`❌ Failed to send notification for order ${orderNumber}:`, result.error);
     }
     
