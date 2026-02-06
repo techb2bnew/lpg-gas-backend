@@ -415,6 +415,7 @@ const createOrderHandler = async (req, res, next) => {
       // 1. Create notification for customer (who created the order)
       const customer = await User.findOne({ where: { email: order.customerEmail } });
       if (customer) {
+        // Save notification to database
         await Notification.create({
           userId: customer.id,
           title: '✅ Order Placed Successfully',
@@ -428,6 +429,33 @@ const createOrderHandler = async (req, res, next) => {
           },
           orderId: order.id
         });
+        
+        // Send Firebase push notification to customer
+        if (customer.fcmToken) {
+          logger.info(`📧 Sending order creation notification to customer: ${customer.email}`, {
+            fcmToken: customer.fcmToken ? `${customer.fcmToken.substring(0, 20)}...` : 'NO TOKEN',
+            fcmDeviceType: customer.fcmDeviceType || 'unknown',
+            orderNumber: order.orderNumber
+          });
+          
+          await notificationService.sendOrderStatusNotification(customer.fcmToken, {
+            id: order.id,
+            orderNumber: order.orderNumber,
+            status: 'pending',
+            userId: customer.id,
+            agencyId: order.agencyId
+          }, {
+            recipientType: 'user',
+            recipientId: customer.id,
+            orderId: order.id,
+            agencyId: order.agencyId,
+            notificationType: 'ORDER_STATUS',
+            deviceType: customer.fcmDeviceType || 'unknown',
+            badge: 1
+          });
+        } else {
+          logger.warn(`⚠️ Customer has no FCM token for order creation notification (customerEmail: ${order.customerEmail})`);
+        }
       }
 
       // 2. Create notification for agency owner
@@ -828,7 +856,12 @@ const updateOrderStatusHandler = async (req, res, next) => {
         });
         
         if (customer && customer.fcmToken) {
-          logger.info(`Sending order status notification to customer: ${customer.email} for order: ${order.orderNumber}`);
+          logger.info(`📧 Sending order status notification to customer: ${customer.email} for order: ${order.orderNumber}`, {
+            customerId: customer.id,
+            fcmToken: customer.fcmToken ? `${customer.fcmToken.substring(0, 20)}...` : 'NO TOKEN',
+            fcmDeviceType: customer.fcmDeviceType || 'unknown',
+            orderStatus: value.status
+          });
           
           // Send Firebase notification (this will also save to database automatically)
           await notificationService.sendOrderStatusNotification(customer.fcmToken, {
@@ -842,10 +875,16 @@ const updateOrderStatusHandler = async (req, res, next) => {
             recipientId: customer.id,
             orderId: order.id,
             agencyId: order.agencyId,
-            notificationType: 'ORDER_STATUS'
+            notificationType: 'ORDER_STATUS',
+            deviceType: customer.fcmDeviceType || 'unknown',
+            badge: 1
           });
         } else {
-          logger.warn(`Customer not found or no FCM token for order ${order.orderNumber} (customerEmail: ${order.customerEmail})`);
+          logger.warn(`⚠️ Customer not found or no FCM token for order ${order.orderNumber} (customerEmail: ${order.customerEmail})`, {
+            customerExists: !!customer,
+            hasFcmToken: customer ? !!customer.fcmToken : false,
+            fcmDeviceType: customer ? customer.fcmDeviceType : 'N/A'
+          });
         }
       } catch (notifError) {
         logger.error('Error sending order status notification:', notifError.message);
@@ -1340,12 +1379,24 @@ const cancelOrderHandler = async (req, res, next) => {
         }
 
         if (customer.fcmToken) {
+          logger.info(`📧 Sending cancel notification to customer: ${customer.email}`, {
+            fcmToken: customer.fcmToken ? `${customer.fcmToken.substring(0, 20)}...` : 'NO TOKEN',
+            fcmDeviceType: customer.fcmDeviceType || 'unknown',
+            orderNumber: order.orderNumber
+          });
+          
           await notificationService.sendToDevice(
             customer.fcmToken,
             cancelTitle,
             cancelMessage,
-            { type: 'ORDER_CANCELLED', orderId: order.id, orderNumber: order.orderNumber, cancelledBy: cancelledBy }
+            { type: 'ORDER_CANCELLED', orderId: order.id, orderNumber: order.orderNumber, cancelledBy: cancelledBy },
+            {
+              deviceType: customer.fcmDeviceType || 'unknown',
+              badge: 1
+            }
           );
+        } else {
+          logger.warn(`⚠️ Customer has no FCM token for cancel notification (customerEmail: ${order.customerEmail})`);
         }
 
         // Create database notification for customer

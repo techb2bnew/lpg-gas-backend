@@ -76,8 +76,18 @@ class NotificationService {
         }
       };
 
+      // Log iOS payload for debugging
+      logger.debug(`📱 iOS APNs payload:`, {
+        alert: message.apns.payload.aps.alert,
+        sound: message.apns.payload.aps.sound,
+        badge: message.apns.payload.aps.badge,
+        contentAvailable: message.apns.payload.aps.contentAvailable,
+        mutableContent: message.apns.payload.aps.mutableContent,
+        priority: message.apns.headers['apns-priority']
+      });
+
       const response = await messaging.send(message);
-      logger.info(`Notification sent successfully: ${response}`);
+      logger.info(`✅ Notification sent successfully: ${response}`);
       return { success: true, messageId: response };
     } catch (error) {
       // Skip logging for common token errors (they're expected)
@@ -332,6 +342,15 @@ class NotificationService {
   async sendOrderStatusNotification(fcmToken, orderData, options = {}) {
     const orderNumber = orderData.orderNumber || orderData.id?.substring(0, 8) || 'N/A';
     
+    // Log notification details for debugging
+    logger.info(`📱 Sending order status notification:`, {
+      orderNumber: orderNumber,
+      status: orderData.status,
+      fcmToken: fcmToken ? `${fcmToken.substring(0, 20)}...` : 'NO TOKEN',
+      tokenLength: fcmToken ? fcmToken.length : 0,
+      deviceType: options.deviceType || 'unknown'
+    });
+    
     const statusMessages = {
       'pending': `Your order #${orderNumber} has been placed successfully. We are waiting for the agency to accept your order.`,
       'confirmed': `Good news! Your order #${orderNumber} has been accepted by the agency and is being prepared.`,
@@ -364,8 +383,29 @@ class NotificationService {
       status: orderData.status
     };
 
+    // Validate FCM token before sending
+    if (!fcmToken || !fcmToken.trim()) {
+      logger.error(`❌ Cannot send notification - FCM token is empty for order ${orderNumber}`);
+      return { success: false, error: 'FCM token is required' };
+    }
+
+    // Log notification payload details
+    logger.info(`📤 Notification payload:`, {
+      title: title,
+      body: body.substring(0, 50) + '...',
+      hasAlert: true, // iOS alert object will be added in sendToDevice
+      deviceType: options.deviceType || 'unknown'
+    });
+
     // Send push notification
     const result = await this.sendToDevice(fcmToken, title, body, data, options);
+    
+    // Log result
+    if (result.success) {
+      logger.info(`✅ Notification sent successfully for order ${orderNumber}`);
+    } else {
+      logger.error(`❌ Failed to send notification for order ${orderNumber}:`, result.error);
+    }
     
     // Save notification to database if recipientId is provided
     if (options.recipientId && result.success) {

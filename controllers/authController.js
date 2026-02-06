@@ -764,10 +764,20 @@ const verifyOTP = async (req, res, next) => {
 
     // Update user's FCM token if provided
     if (fcmToken) {
+      logger.info(`📱 Updating FCM token for user: ${user.email}`, {
+        fcmToken: fcmToken ? `${fcmToken.substring(0, 20)}...` : 'NO TOKEN',
+        fcmDeviceType: fcmDeviceType || 'unknown',
+        role: user.role
+      });
+      
       await user.update({
         fcmToken: fcmToken,
         fcmDeviceType: fcmDeviceType || null
       });
+      
+      logger.info(`✅ FCM token updated successfully for user: ${user.email}`);
+    } else {
+      logger.warn(`⚠️ No FCM token provided for user: ${user.email} during OTP verify`);
     }
 
     // Generate token with role and additional data
