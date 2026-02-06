@@ -137,9 +137,14 @@ class NotificationService {
         apns: {
           payload: {
             aps: {
+              alert: {
+                title: title,
+                body: body
+              },
               sound: 'default',
+              badge: 1,
               contentAvailable: true, // Enable background notifications for iOS
-              mutableContent: true
+              mutableContent: true // Allow notification extensions
             }
           },
           headers: {
@@ -234,9 +239,14 @@ class NotificationService {
         apns: {
           payload: {
             aps: {
+              alert: {
+                title: title,
+                body: body
+              },
               sound: 'default',
+              badge: 1,
               contentAvailable: true, // Enable background notifications for iOS
-              mutableContent: true
+              mutableContent: true // Allow notification extensions
             }
           },
           headers: {
@@ -421,6 +431,10 @@ class NotificationService {
         apns: {
           payload: {
             aps: {
+              alert: {
+                title: title,
+                body: body
+              },
               sound: 'default',
               badge: options.badge || 1,
               contentAvailable: true, // Enable background notifications for iOS
