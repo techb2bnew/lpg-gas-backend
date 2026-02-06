@@ -2013,8 +2013,8 @@ const getOrderById = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    // Find the order with all related data
-    const order = await Order.findByPk(id, {
+    // Try to find order by ID first, then by orderNumber if ID lookup fails
+    let order = await Order.findByPk(id, {
       include: [
         {
           model: require('../models/Agency'),
@@ -2028,6 +2028,25 @@ const getOrderById = async (req, res, next) => {
         }
       ]
     });
+
+    // If not found by ID, try to find by orderNumber (e.g., "ORD-195617-WFWG1N")
+    if (!order && id && id.includes('ORD-')) {
+      order = await Order.findOne({
+        where: { orderNumber: id },
+        include: [
+          {
+            model: require('../models/Agency'),
+            as: 'Agency',
+            attributes: ['id', 'name', 'email', 'phone', 'city', 'status']
+          },
+          {
+            model: require('../models/DeliveryAgent'),
+            as: 'DeliveryAgent',
+            attributes: ['id', 'name', 'phone', 'vehicleNumber']
+          }
+        ]
+      });
+    }
 
     if (!order) {
       return next(createError(404, 'Order not found'));
