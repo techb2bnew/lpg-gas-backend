@@ -1,4 +1,4 @@
-const { Notification } = require('../models');
+const { Notification, User, AgencyOwner } = require('../models');
 const { createError } = require('../utils/errorHandler');
 const logger = require('../utils/logger');
 const { Op } = require('sequelize');
@@ -143,10 +143,67 @@ const markAllAsRead = async (req, res, next) => {
   }
 };
 
+// Register or update FCM token for the authenticated user (web/admin/agency portal)
+const registerToken = async (req, res, next) => {
+  try {
+    const userId = req.user.userId || req.user.id;
+    const { fcmToken, platform, deviceInfo } = req.body || {};
+
+    if (!fcmToken) {
+      return next(createError(400, 'fcmToken is required'));
+    }
+
+    // Try to find user in primary User table first
+    let user = null;
+
+    if (userId) {
+      user = await User.findByPk(userId);
+    }
+
+    // Fallback to AgencyOwner table for agency portal users
+    if (!user && userId) {
+      const owner = await AgencyOwner.findByPk(userId);
+      if (owner) {
+        user = owner;
+      }
+    }
+
+    if (!user) {
+      return next(createError(404, 'User not found'));
+    }
+
+    // Normalize platform/device type for storage
+    const deviceType =
+      platform ||
+      deviceInfo?.platform ||
+      'web';
+
+    await user.update({
+      fcmToken,
+      fcmDeviceType: deviceType
+    });
+
+    logger.info(`FCM token registered for user ${user.email || user.id} (${deviceType})`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Notification token registered successfully',
+      data: {
+        userId: user.id,
+        platform: deviceType
+      }
+    });
+  } catch (error) {
+    logger.error('Error registering notification token:', error.message);
+    next(error);
+  }
+};
+
 module.exports = {
   getUserNotifications,
   getUnreadCount,
   markAsRead,
-  markAllAsRead
+  markAllAsRead,
+  registerToken
 };
 

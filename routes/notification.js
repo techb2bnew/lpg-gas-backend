@@ -5,11 +5,15 @@ const {
   getUserNotifications,
   getUnreadCount,
   markAsRead,
-  markAllAsRead
+  markAllAsRead,
+  registerToken
 } = require('../controllers/notificationController');
 
 // All notification routes require authentication
 router.use(authenticate);
+
+// Register FCM/web push token for current user (used by admin/agency portal)
+router.post('/register-token', registerToken);
 
 // Get user notifications
 router.get('/', getUserNotifications);
