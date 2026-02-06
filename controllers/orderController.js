@@ -813,14 +813,23 @@ const updateOrderStatusHandler = async (req, res, next) => {
     }
 
     // Send Firebase notification to customer about status update
+    // IMPORTANT: Only send to the customer who owns this order (by email match)
     // Skip notification if status is 'assigned' and agent was already assigned (to avoid duplicate from assignAgentHandler)
-    // If assignedAgentId exists, it means assignAgentHandler already sent the notification
     const skipAssignedNotification = value.status === 'assigned' && order.assignedAgentId;
     
     if (!skipAssignedNotification) {
       try {
-        const customer = await User.findOne({ where: { email: order.customerEmail } });
+        // Find customer by exact email match - ensures only order owner gets notification
+        const customer = await User.findOne({ 
+          where: { 
+            email: order.customerEmail,
+            role: 'customer' // Extra safeguard: only customers get customer notifications
+          } 
+        });
+        
         if (customer && customer.fcmToken) {
+          logger.info(`Sending order status notification to customer: ${customer.email} for order: ${order.orderNumber}`);
+          
           // Send Firebase notification (this will also save to database automatically)
           await notificationService.sendOrderStatusNotification(customer.fcmToken, {
             id: order.id,
@@ -835,6 +844,8 @@ const updateOrderStatusHandler = async (req, res, next) => {
             agencyId: order.agencyId,
             notificationType: 'ORDER_STATUS'
           });
+        } else {
+          logger.warn(`Customer not found or no FCM token for order ${order.orderNumber} (customerEmail: ${order.customerEmail})`);
         }
       } catch (notifError) {
         logger.error('Error sending order status notification:', notifError.message);
@@ -918,8 +929,11 @@ const assignAgentHandler = async (req, res, next) => {
       });
 
       // Send Firebase notification to agent
+      // IMPORTANT: Only send to the assigned agent (by agent.fcmToken)
       // Note: sendOrderAssignedToAgent already saves notification to database if recipientId is provided
       if (agent.fcmToken) {
+        logger.info(`Sending order assignment notification to agent: ${agent.email} (${agent.name}) for order: ${order.orderNumber}`);
+        
         await notificationService.sendOrderAssignedToAgent(agent.fcmToken, {
           id: order.id,
           orderNumber: order.orderNumber,

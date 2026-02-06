@@ -128,8 +128,13 @@ class NotificationService {
         apns: {
           payload: {
             aps: {
-              sound: 'default'
+              sound: 'default',
+              contentAvailable: true, // Enable background notifications for iOS
+              mutableContent: true
             }
+          },
+          headers: {
+            'apns-priority': '10' // High priority for iOS
           }
         },
         tokens: validTokens
@@ -220,8 +225,13 @@ class NotificationService {
         apns: {
           payload: {
             aps: {
-              sound: 'default'
+              sound: 'default',
+              contentAvailable: true, // Enable background notifications for iOS
+              mutableContent: true
             }
+          },
+          headers: {
+            'apns-priority': '10' // High priority for iOS
           }
         }
       };
@@ -403,8 +413,13 @@ class NotificationService {
           payload: {
             aps: {
               sound: 'default',
-              badge: options.badge || 1
+              badge: options.badge || 1,
+              contentAvailable: true, // Enable background notifications for iOS
+              mutableContent: true // Allow notification extensions
             }
+          },
+          headers: {
+            'apns-priority': '10' // High priority for iOS
           }
         }
       };
