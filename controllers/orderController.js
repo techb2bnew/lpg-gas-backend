@@ -821,6 +821,37 @@ const updateOrderStatusHandler = async (req, res, next) => {
       updateData.cancelledBy = cancelledBy;
       updateData.cancelledById = cancelledById;
       updateData.cancelledByName = cancelledByName;
+    } else if (value.status === 'returned') {
+      updateData.returnedAt = new Date();
+
+      // Track who returned the order
+      let returnedBy = 'system';
+      let returnedById = null;
+      let returnedByName = 'System';
+
+      if (req.user) {
+        switch (req.user.role) {
+          case 'admin':
+            returnedBy = 'admin';
+            returnedById = req.user.id;
+            returnedByName = req.user.name || req.user.email;
+            break;
+          case 'agency':
+            returnedBy = 'agency';
+            returnedById = req.user.id;
+            returnedByName = req.user.name || req.user.email;
+            break;
+          case 'customer':
+            returnedBy = 'customer';
+            returnedById = req.user.id;
+            returnedByName = req.user.name || req.user.email;
+            break;
+        }
+      }
+
+      updateData.returnedBy = returnedBy;
+      updateData.returnedById = returnedById;
+      updateData.returnedByName = returnedByName;
     }
 
     if (value.adminNotes) updateData.adminNotes = value.adminNotes;
@@ -828,13 +859,19 @@ const updateOrderStatusHandler = async (req, res, next) => {
 
     await order.update(updateData);
 
-    // Restore stock when order is cancelled via status update
+    // Restore stock when order is cancelled or returned via status update
     if (value.status === 'cancelled') {
       await restoreStockToAgency(order);
 
       const cancelledByName = updateData.cancelledByName || 'System';
       const cancelledBy = updateData.cancelledBy || 'system';
       logger.info(`Order cancelled: ${order.orderNumber} by ${cancelledByName} (${cancelledBy}) - Stock restored to agency inventory`);
+    } else if (value.status === 'returned') {
+      await restoreStockToAgency(order);
+
+      const returnedByName = updateData.returnedByName || 'System';
+      const returnedBy = updateData.returnedBy || 'system';
+      logger.info(`Order returned: ${order.orderNumber} by ${returnedByName} (${returnedBy}) - Stock restored to agency inventory`);
     } else {
       logger.info(`Order status updated: ${order.orderNumber} - ${value.status}`);
     }
