@@ -187,6 +187,45 @@ const restoreStockToAgency = async (order) => {
   }
 };
 
+// Deduct stock from agency inventory (for reorder - when cancelled/returned order is set back to pending)
+const deductStockFromAgency = async (order) => {
+  try {
+    for (const item of order.items) {
+      const inventory = await AgencyInventory.findOne({
+        where: {
+          productId: item.productId,
+          agencyId: order.agencyId
+        }
+      });
+      
+      if (inventory) {
+        if (item.variantLabel && inventory.agencyVariants && Array.isArray(inventory.agencyVariants)) {
+          const updatedVariants = inventory.agencyVariants.map(variant => {
+            if (variant.label === item.variantLabel) {
+              const newStock = Math.max(0, (variant.stock || 0) - item.quantity);
+              return { ...variant, stock: newStock };
+            }
+            return variant;
+          });
+          await inventory.update({ agencyVariants: updatedVariants });
+        } else {
+          await AgencyInventory.decrement('stock', {
+            by: item.quantity,
+            where: {
+              productId: item.productId,
+              agencyId: order.agencyId
+            }
+          });
+        }
+      }
+    }
+    return true;
+  } catch (error) {
+    console.error('Error deducting stock:', error);
+    return false;
+  }
+};
+
 module.exports = {
   generateOrderNumber,
   generateOTP,
@@ -194,6 +233,7 @@ module.exports = {
   validateOTP,
   formatOrderResponse,
   restoreStockToAgency,
+  deductStockFromAgency,
   NOTIFICATION_TYPES,
   createNotificationPayload
 };

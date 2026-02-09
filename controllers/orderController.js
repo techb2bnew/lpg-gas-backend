@@ -9,6 +9,7 @@ const {
   validateOTP,
   formatOrderResponse,
   restoreStockToAgency,
+  deductStockFromAgency,
   NOTIFICATION_TYPES,
   createNotificationPayload
 } = require('../utils/orderUtils');
@@ -782,8 +783,26 @@ const updateOrderStatusHandler = async (req, res, next) => {
       return next(createError(403, 'Access denied. You can only return your own orders'));
     }
 
+    // Check permissions - customer can only reorder their own orders
+    if (value.status === 'pending' && req.user.role === 'customer' && order.customerEmail !== req.user.email) {
+      return next(createError(403, 'Access denied. You can only reorder your own orders'));
+    }
+
     // Update order with timestamp
     const updateData = { status: value.status };
+
+    // Reorder: cancelled/returned -> pending - clear cancel/return fields and deduct stock
+    if (value.status === 'pending' && (order.status === 'cancelled' || order.status === 'returned')) {
+      updateData.cancelledAt = null;
+      updateData.cancelledBy = null;
+      updateData.cancelledById = null;
+      updateData.cancelledByName = null;
+      updateData.returnedAt = null;
+      updateData.returnedBy = null;
+      updateData.returnedById = null;
+      updateData.returnedByName = null;
+      updateData.returnReason = null;
+    }
 
     if (value.status === 'confirmed' && order.status === 'pending') {
       updateData.confirmedAt = new Date();
@@ -862,6 +881,7 @@ const updateOrderStatusHandler = async (req, res, next) => {
     if (value.adminNotes) updateData.adminNotes = value.adminNotes;
     if (value.agentNotes) updateData.agentNotes = value.agentNotes;
 
+    const previousStatus = order.status;
     await order.update(updateData);
 
     // Restore stock when order is cancelled or returned via status update
@@ -877,6 +897,10 @@ const updateOrderStatusHandler = async (req, res, next) => {
       const returnedByName = updateData.returnedByName || 'System';
       const returnedBy = updateData.returnedBy || 'system';
       logger.info(`Order returned: ${order.orderNumber} by ${returnedByName} (${returnedBy}) - Stock restored to agency inventory`);
+    } else if (value.status === 'pending' && (previousStatus === 'cancelled' || previousStatus === 'returned')) {
+      // Reorder: deduct stock when reactivating cancelled/returned order
+      await deductStockFromAgency(order);
+      logger.info(`Order reordered: ${order.orderNumber} - Stock deducted from agency inventory`);
     } else {
       logger.info(`Order status updated: ${order.orderNumber} - ${value.status}`);
     }
@@ -1543,7 +1567,7 @@ const getOrdersByStatus = async (req, res, next) => {
     const userRole = req.user.role;
     const userEmail = req.user.email;
 
-    if (!['pending', 'confirmed', 'assigned', 'out_for_delivery', 'delivered', 'cancelled'].includes(status)) {
+    if (!['pending', 'confirmed', 'assigned', 'out_for_delivery', 'delivered', 'cancelled', 'returned'].includes(status)) {
       return next(createError(400, 'Invalid status'));
     }
 
