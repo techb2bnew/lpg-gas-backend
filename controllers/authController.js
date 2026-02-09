@@ -732,7 +732,7 @@ const verifyOTP = async (req, res, next) => {
 
     // Check if OTP is expired
     if (new Date() > new Date(otpRecord.expiresAt)) {
-      return next(createError(400, 'OTP has expired'));
+      return next(createError(400, 'Otp has expired please resend again'));
     }
 
     // Mark OTP as used
@@ -971,7 +971,7 @@ const resetPassword = async (req, res, next) => {
     }
 
     if (new Date() > new Date(otpRecord.expiresAt)) {
-      return next(createError(400, 'OTP has expired'));
+      return next(createError(400, 'Otp has expired please resend again'));
     }
 
     // Update password (hooks will hash)

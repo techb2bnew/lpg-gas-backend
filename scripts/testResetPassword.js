@@ -15,7 +15,7 @@ async function testResetPassword(email, otp, newPassword) {
 
     // Check if OTP is expired
     if (new Date() > new Date(otpRecord.expiresAt)) {
-      console.log('❌ OTP has expired');
+      console.log('❌ Otp has expired please resend again');
       return;
     }
 
