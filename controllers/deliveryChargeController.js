@@ -349,7 +349,15 @@ const deleteCharge = async (req, res, next) => {
 // Calculate distance between two addresses using Google Maps Distance Matrix API
 const calculateDistance = async (origin, destination) => {
   try {
-    const apiKey = process.env.GOOGLE_MAPS_API_KEY || 'AIzaSyBXNyT9zcGdvhAUCUEYTm6e_qPw26AOPgI';
+    const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+    
+    // Check if API key is configured
+    if (!apiKey) {
+      logger.error('Google Maps API key is not configured. Please set GOOGLE_MAPS_API_KEY in environment variables.');
+      throw createError(500, 'Google Maps API key is not configured. Please contact administrator.');
+    }
+
+    logger.info(`Calculating distance from ${origin} to ${destination}`);
     
     const response = await axios.get('https://maps.googleapis.com/maps/api/distancematrix/json', {
       params: {
@@ -361,19 +369,54 @@ const calculateDistance = async (origin, destination) => {
       }
     });
 
+    // Log API response for debugging
+    logger.debug('Google Maps API response:', {
+      status: response.data.status,
+      error_message: response.data.error_message,
+      origin_addresses: response.data.origin_addresses,
+      destination_addresses: response.data.destination_addresses
+    });
+
+    // Handle different API error statuses
     if (response.data.status !== 'OK') {
-      throw new Error(`Google Maps API error: ${response.data.status}`);
+      const errorMessage = response.data.error_message || 'Unknown error';
+      
+      if (response.data.status === 'REQUEST_DENIED') {
+        logger.error(`Google Maps API REQUEST_DENIED: ${errorMessage}. API Key: ${apiKey.substring(0, 10)}...`);
+        throw createError(500, `Google Maps API access denied. Error: ${errorMessage}. Please check: 1) API key is valid, 2) Distance Matrix API is enabled, 3) Billing is enabled, 4) API key restrictions allow this server IP.`);
+      } else if (response.data.status === 'INVALID_REQUEST') {
+        logger.error(`Google Maps API INVALID_REQUEST: ${errorMessage}`);
+        throw createError(400, `Invalid address format. Please check the addresses. Error: ${errorMessage}`);
+      } else if (response.data.status === 'OVER_QUERY_LIMIT') {
+        logger.error(`Google Maps API OVER_QUERY_LIMIT: ${errorMessage}`);
+        throw createError(500, `Google Maps API quota exceeded. Please contact administrator. Error: ${errorMessage}`);
+      } else {
+        logger.error(`Google Maps API error: ${response.data.status} - ${errorMessage}`);
+        throw createError(500, `Google Maps API error: ${response.data.status}. ${errorMessage}`);
+      }
+    }
+
+    if (!response.data.rows || !response.data.rows[0] || !response.data.rows[0].elements || !response.data.rows[0].elements[0]) {
+      throw createError(500, 'Invalid response from Google Maps API. Please try again.');
     }
 
     const result = response.data.rows[0].elements[0];
     
     if (result.status !== 'OK') {
-      throw new Error(`Distance calculation error: ${result.status}`);
+      if (result.status === 'ZERO_RESULTS') {
+        throw createError(400, 'Could not find a route between the addresses. Please check the addresses.');
+      } else if (result.status === 'NOT_FOUND') {
+        throw createError(400, 'One or both addresses could not be found. Please check the addresses.');
+      } else {
+        throw createError(400, `Distance calculation failed: ${result.status}. Please check the addresses.`);
+      }
     }
 
     // Distance in kilometers
     const distanceInKm = result.distance.value / 1000;
     const durationInMinutes = Math.round(result.duration.value / 60);
+
+    logger.info(`Distance calculated: ${distanceInKm} km, Duration: ${durationInMinutes} minutes`);
 
     return {
       distanceInKm: parseFloat(distanceInKm.toFixed(2)),
@@ -382,8 +425,29 @@ const calculateDistance = async (origin, destination) => {
       durationText: result.duration.text
     };
   } catch (error) {
-    logger.error('Error calculating distance:', error);
-    throw createError(500, 'Failed to calculate distance. Please check the addresses.');
+    // If it's already a createError, re-throw it
+    if (error.statusCode) {
+      throw error;
+    }
+    
+    // Log the full error for debugging
+    logger.error('Error calculating distance:', {
+      message: error.message,
+      stack: error.stack,
+      origin,
+      destination
+    });
+    
+    // If axios error, check for network issues
+    if (error.response) {
+      logger.error('Google Maps API HTTP error:', {
+        status: error.response.status,
+        data: error.response.data
+      });
+      throw createError(500, `Failed to connect to Google Maps API. Status: ${error.response.status}`);
+    }
+    
+    throw createError(500, 'Failed to calculate distance. Please check the addresses and try again.');
   }
 };
 
