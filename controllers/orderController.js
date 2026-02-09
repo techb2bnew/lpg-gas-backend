@@ -777,6 +777,11 @@ const updateOrderStatusHandler = async (req, res, next) => {
       return next(createError(404, 'Order not found'));
     }
 
+    // Check permissions - customer can only return their own orders
+    if (value.status === 'returned' && req.user.role === 'customer' && order.customerEmail !== req.user.email) {
+      return next(createError(403, 'Access denied. You can only return your own orders'));
+    }
+
     // Update order with timestamp
     const updateData = { status: value.status };
 
