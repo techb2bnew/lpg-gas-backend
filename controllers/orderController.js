@@ -235,7 +235,7 @@ const createOrderHandler = async (req, res, next) => {
               const customerFullAddress = `${customerAddressObj.address}, ${customerAddressObj.city}, ${customerAddressObj.pincode}`;
               const agencyFullAddress = `${agency.address}, ${agency.city}, ${agency.pincode}`;
 
-              const apiKey = process.env.GOOGLE_MAPS_API_KEY || 'AIzaSyBXNyT9zcGdvhAUCUEYTm6e_qPw26AOPgI';
+              const apiKey = process.env.GOOGLE_MAPS_API_KEY || 'AIzaSyDAGIK0_mpgKVF-qVgj882DIriSt3vwxqM';
 
               const response = await axios.get('https://maps.googleapis.com/maps/api/distancematrix/json', {
                 params: {
