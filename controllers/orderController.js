@@ -236,7 +236,7 @@ const createOrderHandler = async (req, res, next) => {
               const customerFullAddress = `${customerAddressObj.address}, ${customerAddressObj.city}, ${customerAddressObj.pincode}`;
               const agencyFullAddress = `${agency.address}, ${agency.city}, ${agency.pincode}`;
 
-              const apiKey = process.env.GOOGLE_MAPS_API_KEY || 'AIzaSyDAGIK0_mpgKVF-qVgj882DIriSt3vwxqM';
+              const apiKey = process.env.GOOGLE_MAPS_API_KEY || 'AIzaSyBtb6hSmwJ9_OznDC5e8BcZM90ms4WD_DE';
 
               const response = await axios.get('https://maps.googleapis.com/maps/api/distancematrix/json', {
                 params: {
@@ -902,6 +902,99 @@ const updateOrderStatusHandler = async (req, res, next) => {
       // Reorder: deduct stock when reactivating cancelled/returned order
       await deductStockFromAgency(order);
       logger.info(`Order reordered: ${order.orderNumber} - Stock deducted from agency inventory`);
+
+      // If customer triggered reorder, notify agency owner + all admins similar to new order
+      if (req.user && req.user.role === 'customer') {
+        try {
+          // Notify agency owner
+          const agencyOwner = await AgencyOwner.findOne({ where: { agencyId: order.agencyId } });
+          if (agencyOwner) {
+            const agencyOwnerUser = await User.findOne({ where: { email: agencyOwner.email } });
+
+            const title = '🆕 Order Reordered';
+            const body = `Customer ${order.customerName} has reordered order #${order.orderNumber}. Total: ${order.totalAmount}`;
+
+            if (agencyOwner.fcmToken) {
+              await notificationService.sendToDevice(
+                agencyOwner.fcmToken,
+                title,
+                body,
+                {
+                  type: 'ORDER_REORDERED',
+                  orderId: order.id,
+                  orderNumber: order.orderNumber,
+                  total: String(order.totalAmount || 0)
+                }
+              );
+            }
+
+            if (agencyOwnerUser) {
+              await Notification.create({
+                userId: agencyOwnerUser.id,
+                title,
+                content: body,
+                notificationType: 'ORDER_STATUS',
+                data: {
+                  type: 'ORDER_REORDERED',
+                  orderId: order.id,
+                  orderNumber: order.orderNumber,
+                  total: order.totalAmount,
+                  customerName: order.customerName
+                },
+                orderId: order.id
+              });
+            }
+          }
+
+          // Notify all admins
+          const admins = await User.findAll({ where: { role: 'admin' } });
+          if (admins && admins.length > 0) {
+            const adminTokens = admins
+              .map(admin => admin.fcmToken)
+              .filter(token => !!token && token.trim());
+
+            const adminTitle = '🆕 Order Reordered';
+            const adminBody = `Customer ${order.customerName} has reordered order #${order.orderNumber}. Total: ${order.totalAmount}`;
+
+            if (adminTokens.length > 0) {
+              await notificationService.sendToMultipleDevices(
+                adminTokens,
+                adminTitle,
+                adminBody,
+                {
+                  type: 'ORDER_REORDERED',
+                  orderId: order.id,
+                  orderNumber: order.orderNumber,
+                  total: String(order.totalAmount || 0),
+                  agencyId: String(order.agencyId)
+                }
+              );
+            }
+
+            await Promise.all(
+              admins.map(admin =>
+                Notification.create({
+                  userId: admin.id,
+                  title: adminTitle,
+                  content: adminBody,
+                  notificationType: 'ORDER_STATUS',
+                  data: {
+                    type: 'ORDER_REORDERED',
+                    orderId: order.id,
+                    orderNumber: order.orderNumber,
+                    total: order.totalAmount,
+                    customerName: order.customerName,
+                    agencyId: order.agencyId
+                  },
+                  orderId: order.id
+                })
+              )
+            );
+          }
+        } catch (reorderNotifError) {
+          logger.error('Error sending reorder notifications:', reorderNotifError.message);
+        }
+      }
     } else {
       logger.info(`Order status updated: ${order.orderNumber} - ${value.status}`);
     }
@@ -948,23 +1041,68 @@ const updateOrderStatusHandler = async (req, res, next) => {
             fcmDeviceType: customer.fcmDeviceType || 'unknown',
             orderStatus: value.status
           });
-          
-          // Send Firebase notification (this will also save to database automatically)
-          await notificationService.sendOrderStatusNotification(customer.fcmToken, {
-            id: order.id,
-            orderNumber: order.orderNumber,
-            status: value.status,
-            userId: customer.id,
-            agencyId: order.agencyId
-          }, {
-            recipientType: 'user',
-            recipientId: customer.id,
-            orderId: order.id,
-            agencyId: order.agencyId,
-            notificationType: 'ORDER_STATUS',
-            deviceType: customer.fcmDeviceType || 'unknown',
-            badge: 1
-          });
+
+          // Click & Collect: when deliveryMode is 'pickup' and status is confirmed,
+          // send a dedicated "Order Ready for Pickup" notification instead of the generic one.
+          if (value.status === 'confirmed' && order.deliveryMode === 'pickup') {
+            const title = '📦 Order Ready for Pickup';
+            const body = `Your order #${order.orderNumber} is ready for pickup. Please visit the agency and collect your order.`;
+
+            await notificationService.sendToDevice(
+              customer.fcmToken,
+              title,
+              body,
+              {
+                type: 'ORDER_READY_FOR_PICKUP',
+                orderId: order.id,
+                orderNumber: order.orderNumber,
+                status: 'confirmed',
+                deliveryMode: order.deliveryMode
+              },
+              {
+                recipientType: 'user',
+                recipientId: customer.id,
+                orderId: order.id,
+                agencyId: order.agencyId,
+                notificationType: 'ORDER_STATUS',
+                deviceType: customer.fcmDeviceType || 'unknown',
+                badge: 1
+              }
+            );
+
+            // Also persist notification for in‑app inbox
+            await Notification.create({
+              userId: customer.id,
+              title,
+              content: body,
+              notificationType: 'ORDER_STATUS',
+              data: {
+                type: 'ORDER_READY_FOR_PICKUP',
+                orderId: order.id,
+                orderNumber: order.orderNumber,
+                status: 'confirmed',
+                deliveryMode: order.deliveryMode
+              },
+              orderId: order.id
+            });
+          } else {
+            // Generic order-status notification (home delivery flow and other statuses)
+            await notificationService.sendOrderStatusNotification(customer.fcmToken, {
+              id: order.id,
+              orderNumber: order.orderNumber,
+              status: value.status,
+              userId: customer.id,
+              agencyId: order.agencyId
+            }, {
+              recipientType: 'user',
+              recipientId: customer.id,
+              orderId: order.id,
+              agencyId: order.agencyId,
+              notificationType: 'ORDER_STATUS',
+              deviceType: customer.fcmDeviceType || 'unknown',
+              badge: 1
+            });
+          }
         } else {
           logger.warn(`⚠️ Customer not found or no FCM token for order ${order.orderNumber} (customerEmail: ${order.customerEmail})`, {
             customerExists: !!customer,
@@ -1093,6 +1231,52 @@ const assignAgentHandler = async (req, res, next) => {
       // Customer notification removed - only driver gets "New Delivery Assigned!" notification
     } catch (notifError) {
       logger.error('Error sending agent assignment notification:', notifError.message);
+    }
+
+    // Notify customer that a rider has been assigned (RIDER_ASSIGNED)
+    try {
+      const customer = await User.findOne({
+        where: {
+          email: order.customerEmail,
+          role: 'customer'
+        }
+      });
+
+      if (customer && customer.fcmToken) {
+        logger.info(`📧 Sending rider assigned notification to customer: ${customer.email} for order: ${order.orderNumber}`, {
+          customerId: customer.id,
+          fcmToken: `${customer.fcmToken.substring(0, 20)}...`,
+          deviceType: customer.fcmDeviceType || 'unknown'
+        });
+
+        // Use generic order-status notification mapping (status = 'assigned' → 🚴 Rider Assigned)
+        await notificationService.sendOrderStatusNotification(
+          customer.fcmToken,
+          {
+            id: order.id,
+            orderNumber: order.orderNumber,
+            status: 'assigned',
+            userId: customer.id,
+            agencyId: order.agencyId
+          },
+          {
+            recipientType: 'user',
+            recipientId: customer.id,
+            orderId: order.id,
+            agencyId: order.agencyId,
+            notificationType: 'ORDER_STATUS',
+            deviceType: customer.fcmDeviceType || 'unknown',
+            badge: 1
+          }
+        );
+      } else {
+        logger.warn(`⚠️ Customer not found or has no FCM token for rider-assigned notification (email: ${order.customerEmail})`, {
+          exists: !!customer,
+          hasToken: customer ? !!customer.fcmToken : false
+        });
+      }
+    } catch (customerNotifError) {
+      logger.error('Error sending rider-assigned notification to customer:', customerNotifError.message);
     }
 
     res.status(200).json({
@@ -1350,6 +1534,57 @@ const verifyOTPHandler = async (req, res, next) => {
           });
         }
       }
+
+      // Notify all admins about completed delivery
+      try {
+        const admins = await User.findAll({ where: { role: 'admin' } });
+        if (admins && admins.length > 0) {
+          const adminTokens = admins
+            .map(admin => admin.fcmToken)
+            .filter(token => !!token && token.trim());
+
+          const title = '🎉 Order Delivered';
+          const body = `Order #${order.orderNumber} has been delivered successfully.`;
+
+          if (adminTokens.length > 0) {
+            await notificationService.sendToMultipleDevices(
+              adminTokens,
+              title,
+              body,
+              {
+                type: 'ORDER_DELIVERED',
+                orderId: order.id,
+                orderNumber: order.orderNumber,
+                status: 'delivered',
+                customerName: order.customerName,
+                agencyId: order.agencyId
+              }
+            );
+          }
+
+          await Promise.all(
+            admins.map(admin =>
+              Notification.create({
+                userId: admin.id,
+                title,
+                content: body,
+                notificationType: 'ORDER_STATUS',
+                data: {
+                  type: 'ORDER_DELIVERED',
+                  orderId: order.id,
+                  orderNumber: order.orderNumber,
+                  status: 'delivered',
+                  customerName: order.customerName,
+                  agencyId: order.agencyId
+                },
+                orderId: order.id
+              })
+            )
+          );
+        }
+      } catch (adminDeliveredNotifError) {
+        logger.error('Error sending admin delivered notifications:', adminDeliveredNotifError.message);
+      }
     } catch (notifError) {
       logger.error('Error sending delivery notification:', notifError.message);
     }
@@ -1537,6 +1772,57 @@ const cancelOrderHandler = async (req, res, next) => {
               orderId: order.id
             });
           }
+        }
+
+        // Notify all admins if order was cancelled by customer
+        try {
+          const admins = await User.findAll({ where: { role: 'admin' } });
+          if (admins && admins.length > 0) {
+            const adminTokens = admins
+              .map(admin => admin.fcmToken)
+              .filter(token => !!token && token.trim());
+
+            const adminBody = `Customer ${order.customerName} has cancelled order #${order.orderNumber}.`;
+
+            if (adminTokens.length > 0) {
+              await notificationService.sendToMultipleDevices(
+                adminTokens,
+                '⚠️ Order Cancelled by Customer',
+                adminBody,
+                {
+                  type: 'ORDER_CANCELLED_BY_USER',
+                  orderId: order.id,
+                  orderNumber: order.orderNumber,
+                  status: 'cancelled',
+                  cancelledBy: 'customer',
+                  customerName: order.customerName
+                }
+              );
+            }
+
+            // Create database notifications for all admins
+            await Promise.all(
+              admins.map(admin =>
+                Notification.create({
+                  userId: admin.id,
+                  title: '⚠️ Order Cancelled by Customer',
+                  content: adminBody,
+                  notificationType: 'ORDER_STATUS',
+                  data: {
+                    type: 'ORDER_CANCELLED_BY_USER',
+                    orderId: order.id,
+                    orderNumber: order.orderNumber,
+                    status: 'cancelled',
+                    cancelledBy: 'customer',
+                    customerName: order.customerName
+                  },
+                  orderId: order.id
+                })
+              )
+            );
+          }
+        } catch (adminNotifError) {
+          logger.error('Error sending admin cancellation notifications:', adminNotifError.message);
         }
       }
     } catch (notifError) {
@@ -2123,6 +2409,57 @@ const returnOrderHandler = async (req, res, next) => {
             orderId: order.id
           });
         }
+      }
+
+      // Notify all admins about return (for dashboards & monitoring)
+      try {
+        const admins = await User.findAll({ where: { role: 'admin' } });
+        if (admins && admins.length > 0) {
+          const adminTokens = admins
+            .map(admin => admin.fcmToken)
+            .filter(token => !!token && token.trim());
+
+          const title = 'Order Returned';
+          const body = `Order #${order.orderNumber} has been returned by ${returnedByName}.`;
+
+          if (adminTokens.length > 0) {
+            await notificationService.sendToMultipleDevices(
+              adminTokens,
+              title,
+              body,
+              {
+                type: 'ORDER_RETURNED',
+                orderId: order.id,
+                orderNumber: order.orderNumber,
+                status: 'returned',
+                customerName: order.customerName,
+                agencyId: order.agencyId
+              }
+            );
+          }
+
+          await Promise.all(
+            admins.map(admin =>
+              Notification.create({
+                userId: admin.id,
+                title,
+                content: body,
+                notificationType: 'ORDER_STATUS',
+                data: {
+                  type: 'ORDER_RETURNED',
+                  orderId: order.id,
+                  orderNumber: order.orderNumber,
+                  status: 'returned',
+                  customerName: order.customerName,
+                  agencyId: order.agencyId
+                },
+                orderId: order.id
+              })
+            )
+          );
+        }
+      } catch (adminReturnNotifError) {
+        logger.error('Error sending admin return notifications:', adminReturnNotifError.message);
       }
     } catch (notifError) {
       logger.error('Error sending return notification:', notifError.message);
