@@ -9,30 +9,44 @@ async function addReorderColumns() {
 
     console.log('🔄 Adding reorder columns to orders table...');
 
-    // Check if columns already exist
+    // Check if columns already exist (handle both old and correct names safely)
     const [columns] = await sequelize.query(`
       SELECT column_name 
       FROM information_schema.columns 
       WHERE table_name = 'orders' 
-      AND column_name IN ('reorderedAt')
+      AND column_name IN ('reordered_at', 'reorderedAt')
     `);
 
     const existingColumns = columns.map(col => col.column_name);
-    console.log('Existing reorder columns:', existingColumns);
+    console.log('Existing reorder-related columns:', existingColumns);
 
-    // Add reorderedAt column
-    if (!existingColumns.includes('reorderedAt')) {
-      console.log('Adding reorderedAt column...');
+    const hasSnakeCase = existingColumns.includes('reordered_at');
+    const hasCamelCase = existingColumns.includes('reorderedAt');
+
+    if (!hasSnakeCase && hasCamelCase) {
+      // If old camelCase column exists in DB, rename it to the correct snake_case
+      console.log('Renaming column "reorderedAt" -> "reordered_at"...');
       await sequelize.query(`
         ALTER TABLE orders 
-        ADD COLUMN "reorderedAt" TIMESTAMP NULL;
+        RENAME COLUMN "reorderedAt" TO reordered_at;
       `);
 
       await sequelize.query(`
-        COMMENT ON COLUMN orders."reorderedAt" IS 'Timestamp when order was reordered (reactivated from cancelled/returned)';
+        COMMENT ON COLUMN orders.reordered_at IS 'Timestamp when order was reordered (reactivated from cancelled/returned)';
+      `);
+    } else if (!hasSnakeCase && !hasCamelCase) {
+      // Fresh DB: add the correct snake_case column
+      console.log('Adding reordered_at column...');
+      await sequelize.query(`
+        ALTER TABLE orders 
+        ADD COLUMN reordered_at TIMESTAMP NULL;
+      `);
+
+      await sequelize.query(`
+        COMMENT ON COLUMN orders.reordered_at IS 'Timestamp when order was reordered (reactivated from cancelled/returned)';
       `);
     } else {
-      console.log('✓ reorderedAt column already exists');
+      console.log('✓ Reorder tracking column already exists (reordered_at)');
     }
 
     console.log('✅ Reorder columns added successfully!');
@@ -42,7 +56,7 @@ async function addReorderColumns() {
       SELECT column_name, data_type, column_default
       FROM information_schema.columns 
       WHERE table_name = 'orders' 
-      AND column_name IN ('reorderedAt')
+      AND column_name IN ('reordered_at')
       ORDER BY column_name;
     `);
 

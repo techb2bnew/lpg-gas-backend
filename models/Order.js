@@ -227,7 +227,8 @@ const Order = sequelize.define('Order', {
   reorderedAt: {
     type: DataTypes.DATE,
     allowNull: true,
-    comment: 'Timestamp when order was reordered (reactivated from cancelled/returned)'
+    comment: 'Timestamp when order was reordered (reactivated from cancelled/returned)',
+    field: 'reordered_at'
   },
   // Notes
   adminNotes: {
