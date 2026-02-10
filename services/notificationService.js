@@ -5,6 +5,10 @@ const { Notification } = require('../models');
 class NotificationService {
   constructor() {
     this.messaging = null;
+    // In‑memory idempotency cache to avoid sending duplicate order-status
+    // notifications (especially for "pending" / order placed events).
+    // Keyed by "<orderIdOrNumber>:<status>:<recipientId>".
+    this.sentOrderStatusKeys = new Set();
   }
 
   // Initialize messaging instance
@@ -408,6 +412,34 @@ class NotificationService {
       orderNumber: orderData.orderNumber || '',
       status: orderData.status
     };
+
+    // -------- Idempotency guard for duplicate "pending" notifications --------
+    // In some flows the "order placed" notification can be triggered twice
+    // (for example, once during order creation and once during a status update).
+    // To prevent the customer from seeing two identical push notifications,
+    // we skip sending if we've already sent a notification for the same
+    // order + status + recipient in this process.
+    if (orderData.status === 'pending') {
+      const recipientId = options.recipientId || orderData.userId || '';
+      const orderKeyPart = orderData.id || orderNumber;
+      const dedupeKey = `${orderKeyPart}:${orderData.status}:${recipientId}`;
+
+      if (this.sentOrderStatusKeys.has(dedupeKey)) {
+        console.log(`⚠️ [NOTIFICATION SERVICE] Skipping duplicate 'pending' notification for`, {
+          orderKey: orderKeyPart,
+          status: orderData.status,
+          recipientId
+        });
+        logger.info('Skipping duplicate pending order-status notification', {
+          orderKey: orderKeyPart,
+          status: orderData.status,
+          recipientId
+        });
+        return { success: false, skipped: true };
+      }
+
+      this.sentOrderStatusKeys.add(dedupeKey);
+    }
 
     // Validate FCM token before sending
     if (!fcmToken || !fcmToken.trim()) {
