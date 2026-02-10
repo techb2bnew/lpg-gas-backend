@@ -501,26 +501,61 @@ exports.getCustomerCoupons = async (req, res, next) => {
     const expiredCouponIds = [];
     
     for (const coupon of coupons) {
-      // Combine expiryDate (DATEONLY) and expiryTime (STRING) to create full datetime
-      const expiryDateTime = new Date(`${coupon.expiryDate}T${coupon.expiryTime}`);
-      
-      // Check if coupon has expired
-      if (now > expiryDateTime) {
-        // Mark expired coupon for deactivation
+      try {
+        // Handle different date formats
+        let expiryDateStr = coupon.expiryDate;
+        let expiryTimeStr = coupon.expiryTime;
+        
+        // If expiryDate is a Date object, convert to string
+        if (expiryDateStr instanceof Date) {
+          expiryDateStr = expiryDateStr.toISOString().split('T')[0];
+        } else if (typeof expiryDateStr === 'string') {
+          // Extract just the date part if it includes time
+          expiryDateStr = expiryDateStr.split('T')[0].split(' ')[0];
+        }
+        
+        // Normalize time format (handle HH:MM:SS or HH:MM)
+        if (typeof expiryTimeStr === 'string') {
+          expiryTimeStr = expiryTimeStr.trim();
+          // If time doesn't have seconds, add them
+          if (expiryTimeStr.split(':').length === 2) {
+            expiryTimeStr = expiryTimeStr + ':00';
+          }
+        }
+        
+        // Combine expiryDate and expiryTime to create full datetime
+        const expiryDateTime = new Date(`${expiryDateStr}T${expiryTimeStr}`);
+        
+        // Validate the date was parsed correctly
+        if (isNaN(expiryDateTime.getTime())) {
+          logger.warn(`Invalid expiry date/time for coupon ${coupon.code}: ${expiryDateStr} ${expiryTimeStr}`);
+          // Skip invalid dates - treat as expired
+          expiredCouponIds.push(coupon.id);
+          continue;
+        }
+        
+        // Check if coupon has expired (compare with current time)
+        if (now >= expiryDateTime) {
+          // Mark expired coupon for deactivation
+          expiredCouponIds.push(coupon.id);
+          logger.debug(`Coupon ${coupon.code} expired at ${expiryDateTime.toISOString()}, current: ${now.toISOString()}, marking for deactivation`);
+        } else {
+          // Only include non-expired coupons
+          validCoupons.push({
+            id: coupon.id,
+            code: coupon.code,
+            discountType: coupon.discountType,
+            discountValue: coupon.discountValue,
+            minAmount: coupon.minAmount,
+            maxAmount: coupon.maxAmount,
+            expiryDate: coupon.expiryDate,
+            expiryTime: coupon.expiryTime,
+          });
+        }
+      } catch (dateError) {
+        logger.error(`Error processing expiry for coupon ${coupon.code}:`, dateError);
+        // On error, mark as expired to be safe
         expiredCouponIds.push(coupon.id);
-        logger.debug(`Coupon ${coupon.code} expired at ${expiryDateTime}, marking for deactivation`);
-      } else {
-        // Only include non-expired coupons
-        validCoupons.push({
-          id: coupon.id,
-          code: coupon.code,
-          discountType: coupon.discountType,
-          discountValue: coupon.discountValue,
-          minAmount: coupon.minAmount,
-          maxAmount: coupon.maxAmount,
-          expiryDate: coupon.expiryDate,
-          expiryTime: coupon.expiryTime,
-        });
       }
     }
 
