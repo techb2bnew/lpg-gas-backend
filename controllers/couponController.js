@@ -1,6 +1,6 @@
 const Coupon = require('../models/Coupon');
 const { createError } = require('../utils/errorHandler');
-const { Op } = require('sequelize');
+const { Op, Sequelize } = require('sequelize');
 const { User, Notification } = require('../models');
 const notificationService = require('../services/notificationService');
 const logger = require('../utils/logger');
@@ -483,8 +483,10 @@ exports.getCustomerCoupons = async (req, res, next) => {
     }
 
     const now = new Date();
+    const currentDateTime = now.toISOString().slice(0, 19).replace('T', ' '); // YYYY-MM-DD HH:MM:SS format
 
     // Get all active coupons for this agency
+    // We'll filter expired ones in JavaScript since expiryDate is DATEONLY and expiryTime is STRING
     const coupons = await Coupon.findAll({
       where: {
         agencyId: agencyId,
@@ -496,13 +498,19 @@ exports.getCustomerCoupons = async (req, res, next) => {
 
     // Filter out expired coupons and auto-deactivate them
     const validCoupons = [];
+    const expiredCouponIds = [];
+    
     for (const coupon of coupons) {
-      const expiryDateTime = new Date(`${coupon.expiryDate} ${coupon.expiryTime}`);
+      // Combine expiryDate (DATEONLY) and expiryTime (STRING) to create full datetime
+      const expiryDateTime = new Date(`${coupon.expiryDate}T${coupon.expiryTime}`);
       
+      // Check if coupon has expired
       if (now > expiryDateTime) {
-        // Auto-deactivate expired coupon
-        await coupon.update({ isActive: false });
+        // Mark expired coupon for deactivation
+        expiredCouponIds.push(coupon.id);
+        logger.debug(`Coupon ${coupon.code} expired at ${expiryDateTime}, marking for deactivation`);
       } else {
+        // Only include non-expired coupons
         validCoupons.push({
           id: coupon.id,
           code: coupon.code,
@@ -515,6 +523,44 @@ exports.getCustomerCoupons = async (req, res, next) => {
         });
       }
     }
+
+    // Auto-deactivate expired coupons in bulk (if any found)
+    if (expiredCouponIds.length > 0) {
+      try {
+        await Coupon.update(
+          { isActive: false },
+          {
+            where: {
+              id: {
+                [Op.in]: expiredCouponIds,
+              },
+            },
+          }
+        );
+        logger.info(`Auto-deactivated ${expiredCouponIds.length} expired coupons: ${expiredCouponIds.join(', ')}`);
+        
+        // Emit socket events for deactivated coupons
+        if (global.socketService) {
+          for (const couponId of expiredCouponIds) {
+            const expiredCoupon = coupons.find(c => c.id === couponId);
+            if (expiredCoupon) {
+              global.socketService.emitCouponStatusChanged({
+                id: expiredCoupon.id,
+                code: expiredCoupon.code,
+                agencyId: expiredCoupon.agencyId,
+                isActive: false,
+                action: 'auto-deactivated-expired'
+              });
+            }
+          }
+        }
+      } catch (updateError) {
+        logger.error('Error auto-deactivating expired coupons:', updateError.message);
+        // Don't fail the request if deactivation fails
+      }
+    }
+
+    logger.info(`Returning ${validCoupons.length} valid coupons out of ${coupons.length} total for agency ${agencyId}`);
 
     res.status(200).json({
       success: true,
