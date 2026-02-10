@@ -1087,21 +1087,28 @@ const updateOrderStatusHandler = async (req, res, next) => {
             });
           } else {
             // Generic order-status notification (home delivery flow and other statuses)
-            await notificationService.sendOrderStatusNotification(customer.fcmToken, {
-              id: order.id,
-              orderNumber: order.orderNumber,
-              status: value.status,
-              userId: customer.id,
-              agencyId: order.agencyId
-            }, {
-              recipientType: 'user',
-              recipientId: customer.id,
-              orderId: order.id,
-              agencyId: order.agencyId,
-              notificationType: 'ORDER_STATUS',
-              deviceType: customer.fcmDeviceType || 'unknown',
-              badge: 1
-            });
+            // NOTE: We intentionally skip sending a push when status is "pending"
+            // because the order creation flow already sends the "Order Placed Successfully"
+            // notification. This avoids duplicate notifications on order placement.
+            if (value.status !== 'pending') {
+              await notificationService.sendOrderStatusNotification(customer.fcmToken, {
+                id: order.id,
+                orderNumber: order.orderNumber,
+                status: value.status,
+                userId: customer.id,
+                agencyId: order.agencyId
+              }, {
+                recipientType: 'user',
+                recipientId: customer.id,
+                orderId: order.id,
+                agencyId: order.agencyId,
+                notificationType: 'ORDER_STATUS',
+                deviceType: customer.fcmDeviceType || 'unknown',
+                badge: 1
+              });
+            } else {
+              logger.info(`Skipping duplicate 'pending' status push for order ${order.orderNumber}; already sent at creation.`);
+            }
           }
         } else {
           logger.warn(`⚠️ Customer not found or no FCM token for order ${order.orderNumber} (customerEmail: ${order.customerEmail})`, {
