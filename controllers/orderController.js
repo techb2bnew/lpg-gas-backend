@@ -791,7 +791,7 @@ const updateOrderStatusHandler = async (req, res, next) => {
     // Update order with timestamp
     const updateData = { status: value.status };
 
-    // Reorder: cancelled/returned -> pending - clear cancel/return fields and deduct stock
+  // Reorder: cancelled/returned -> pending - clear cancel/return fields and deduct stock
     if (value.status === 'pending' && (order.status === 'cancelled' || order.status === 'returned')) {
       updateData.cancelledAt = null;
       updateData.cancelledBy = null;
@@ -802,6 +802,7 @@ const updateOrderStatusHandler = async (req, res, next) => {
       updateData.returnedById = null;
       updateData.returnedByName = null;
       updateData.returnReason = null;
+      updateData.reorderedAt = new Date();
     }
 
     if (value.status === 'confirmed' && order.status === 'pending') {

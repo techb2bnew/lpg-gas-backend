@@ -89,7 +89,9 @@ const formatOrderResponse = (order, includeAgent = false) => {
     // Delivery proof and notes
     deliveryProofImage: order.deliveryProofImage,
     deliveryNote: order.deliveryNote,
-    paymentReceived: order.paymentReceived
+    paymentReceived: order.paymentReceived,
+    // Reorder tracking
+    reorderedAt: order.reorderedAt
   };
 
   // Include agency details if available

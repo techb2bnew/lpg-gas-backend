@@ -223,6 +223,12 @@ const Order = sequelize.define('Order', {
     allowNull: true,
     comment: 'Reason for returning the order'
   },
+  // Reorder tracking
+  reorderedAt: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    comment: 'Timestamp when order was reordered (reactivated from cancelled/returned)'
+  },
   // Notes
   adminNotes: {
     type: DataTypes.TEXT,
