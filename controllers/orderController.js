@@ -2359,8 +2359,8 @@ const returnOrderHandler = async (req, res, next) => {
         if (customer.fcmToken) {
           await notificationService.sendToDevice(
             customer.fcmToken,
-            'Order Returned',
-            `Your order #${order.orderNumber} has been returned. Reason: ${value.reason || 'Not specified'}`,
+            'Order Return Request',
+            `Your order  ${order.orderNumber} request to return the order has been listed`,
             { type: 'ORDER_RETURNED', orderId: order.id, orderNumber: order.orderNumber }
           );
         }
@@ -2368,8 +2368,8 @@ const returnOrderHandler = async (req, res, next) => {
         // Create database notification for customer
         await Notification.create({
           userId: customer.id,
-          title: 'Order Returned',
-          content: `Your order #${order.orderNumber} has been returned${value.reason ? `. Reason: ${value.reason}` : ''}.`,
+          title: 'Order Return Request',
+          content: `Your ${order.orderNumber} request to return the order has been listed`,
           notificationType: 'ORDER_STATUS',
           data: {
             type: 'ORDER_STATUS',
