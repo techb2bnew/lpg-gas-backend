@@ -86,6 +86,15 @@ const formatOrderResponse = (order, includeAgent = false) => {
     returnedById: order.returnedById,
     returnedByName: order.returnedByName,
     returnReason: order.returnReason,
+    // Return approval/rejection tracking fields
+    returnApprovedAt: order.returnApprovedAt,
+    returnApprovedBy: order.returnApprovedBy,
+    returnApprovedById: order.returnApprovedById,
+    returnApprovedByName: order.returnApprovedByName,
+    returnRejectedAt: order.returnRejectedAt,
+    returnRejectedBy: order.returnRejectedBy,
+    returnRejectedById: order.returnRejectedById,
+    returnRejectedByName: order.returnRejectedByName,
     // Delivery proof and notes
     deliveryProofImage: order.deliveryProofImage,
     deliveryNote: order.deliveryNote,

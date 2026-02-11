@@ -877,6 +877,62 @@ const updateOrderStatusHandler = async (req, res, next) => {
       updateData.returnedBy = returnedBy;
       updateData.returnedById = returnedById;
       updateData.returnedByName = returnedByName;
+    } else if (value.status === 'return_approved') {
+      // Only allow approval if current status is 'returned'
+      if (order.status !== 'returned') {
+        return next(createError(400, 'Can only approve orders with returned status'));
+      }
+      
+      updateData.returnApprovedAt = new Date();
+      
+      // Track who approved the return
+      let returnApprovedBy = 'admin';
+      let returnApprovedById = null;
+      let returnApprovedByName = 'Admin';
+      
+      if (req.user) {
+        if (req.user.role === 'admin' || req.user.role === 'super_admin') {
+          returnApprovedBy = 'admin';
+          returnApprovedById = req.user.id;
+          returnApprovedByName = req.user.name || req.user.email || 'Admin';
+        } else if (req.user.role === 'agency' || req.user.role === 'agency_owner') {
+          returnApprovedBy = 'agency';
+          returnApprovedById = req.user.id;
+          returnApprovedByName = req.user.name || req.user.email || 'Agency';
+        }
+      }
+      
+      updateData.returnApprovedBy = returnApprovedBy;
+      updateData.returnApprovedById = returnApprovedById;
+      updateData.returnApprovedByName = returnApprovedByName;
+    } else if (value.status === 'return_rejected') {
+      // Only allow rejection if current status is 'returned'
+      if (order.status !== 'returned') {
+        return next(createError(400, 'Can only reject orders with returned status'));
+      }
+      
+      updateData.returnRejectedAt = new Date();
+      
+      // Track who rejected the return
+      let returnRejectedBy = 'admin';
+      let returnRejectedById = null;
+      let returnRejectedByName = 'Admin';
+      
+      if (req.user) {
+        if (req.user.role === 'admin' || req.user.role === 'super_admin') {
+          returnRejectedBy = 'admin';
+          returnRejectedById = req.user.id;
+          returnRejectedByName = req.user.name || req.user.email || 'Admin';
+        } else if (req.user.role === 'agency' || req.user.role === 'agency_owner') {
+          returnRejectedBy = 'agency';
+          returnRejectedById = req.user.id;
+          returnRejectedByName = req.user.name || req.user.email || 'Agency';
+        }
+      }
+      
+      updateData.returnRejectedBy = returnRejectedBy;
+      updateData.returnRejectedById = returnRejectedById;
+      updateData.returnRejectedByName = returnRejectedByName;
     }
 
     if (value.adminNotes) updateData.adminNotes = value.adminNotes;
@@ -1004,6 +1060,10 @@ const updateOrderStatusHandler = async (req, res, next) => {
       await sendEmail(order.customerEmail, 'orderConfirmation', formatOrderResponse(order));
     } else if (value.status === 'cancelled') {
       await sendEmail(order.customerEmail, 'orderCancelled', formatOrderResponse(order), value.adminNotes);
+    } else if (value.status === 'return_approved') {
+      await sendEmail(order.customerEmail, 'orderReturnApproved', formatOrderResponse(order), value.adminNotes);
+    } else if (value.status === 'return_rejected') {
+      await sendEmail(order.customerEmail, 'orderReturnRejected', formatOrderResponse(order), value.adminNotes);
     }
 
     // Emit socket notification
@@ -1042,9 +1102,101 @@ const updateOrderStatusHandler = async (req, res, next) => {
             orderStatus: value.status
           });
 
+          // Return Approved: send specific notification
+          if (value.status === 'return_approved') {
+            const approvedByName = updateData.returnApprovedByName || 'Admin';
+            const approvedBy = updateData.returnApprovedBy === 'admin' ? 'Admin' : 'Agency';
+            const title = '✅ Return Request Approved';
+            const body = `Your return request for order #${order.orderNumber} has been approved by ${approvedBy}${approvedByName !== approvedBy ? ` - ${approvedByName}` : ''}.`;
+
+            await notificationService.sendToDevice(
+              customer.fcmToken,
+              title,
+              body,
+              {
+                type: 'RETURN_APPROVED',
+                orderId: order.id,
+                orderNumber: order.orderNumber,
+                status: 'return_approved',
+                approvedBy: updateData.returnApprovedBy,
+                approvedByName: updateData.returnApprovedByName
+              },
+              {
+                recipientType: 'user',
+                recipientId: customer.id,
+                orderId: order.id,
+                agencyId: order.agencyId,
+                notificationType: 'ORDER_STATUS',
+                deviceType: customer.fcmDeviceType || 'unknown',
+                badge: 1
+              }
+            );
+
+            await Notification.create({
+              userId: customer.id,
+              title,
+              content: body,
+              notificationType: 'ORDER_STATUS',
+              data: {
+                type: 'RETURN_APPROVED',
+                orderId: order.id,
+                orderNumber: order.orderNumber,
+                status: 'return_approved',
+                approvedBy: updateData.returnApprovedBy,
+                approvedByName: updateData.returnApprovedByName
+              },
+              orderId: order.id
+            });
+          }
+          // Return Rejected: send specific notification
+          else if (value.status === 'return_rejected') {
+            const rejectedByName = updateData.returnRejectedByName || 'Admin';
+            const rejectedBy = updateData.returnRejectedBy === 'admin' ? 'Admin' : 'Agency';
+            const title = '❌ Return Request Rejected';
+            const body = `Your return request for order #${order.orderNumber} has been rejected by ${rejectedBy}${rejectedByName !== rejectedBy ? ` - ${rejectedByName}` : ''}.`;
+
+            await notificationService.sendToDevice(
+              customer.fcmToken,
+              title,
+              body,
+              {
+                type: 'RETURN_REJECTED',
+                orderId: order.id,
+                orderNumber: order.orderNumber,
+                status: 'return_rejected',
+                rejectedBy: updateData.returnRejectedBy,
+                rejectedByName: updateData.returnRejectedByName
+              },
+              {
+                recipientType: 'user',
+                recipientId: customer.id,
+                orderId: order.id,
+                agencyId: order.agencyId,
+                notificationType: 'ORDER_STATUS',
+                deviceType: customer.fcmDeviceType || 'unknown',
+                badge: 1
+              }
+            );
+
+            await Notification.create({
+              userId: customer.id,
+              title,
+              content: body,
+              notificationType: 'ORDER_STATUS',
+              data: {
+                type: 'RETURN_REJECTED',
+                orderId: order.id,
+                orderNumber: order.orderNumber,
+                status: 'return_rejected',
+                rejectedBy: updateData.returnRejectedBy,
+                rejectedByName: updateData.returnRejectedByName
+              },
+              orderId: order.id
+            });
+          }
           // Click & Collect: when deliveryMode is 'pickup' and status is confirmed,
           // send a dedicated "Order Ready for Pickup" notification instead of the generic one.
-          if (value.status === 'confirmed' && order.deliveryMode === 'pickup') {
+          else if (value.status === 'confirmed' && order.deliveryMode === 'pickup') {
             const title = '📦 Order Ready for Pickup';
             const body = `Your order #${order.orderNumber} is ready for pickup. Please visit the agency and collect your order.`;
 

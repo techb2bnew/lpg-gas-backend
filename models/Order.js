@@ -130,7 +130,7 @@ const Order = sequelize.define('Order', {
   },
   // Order status
   status: {
-    type: DataTypes.ENUM('pending', 'confirmed', 'assigned', 'out_for_delivery', 'delivered', 'cancelled', 'returned'),
+    type: DataTypes.ENUM('pending', 'confirmed', 'assigned', 'out_for_delivery', 'delivered', 'cancelled', 'returned', 'return_approved', 'return_rejected'),
     defaultValue: 'pending'
   },
   // Agency assignment
@@ -222,6 +222,55 @@ const Order = sequelize.define('Order', {
     type: DataTypes.TEXT,
     allowNull: true,
     comment: 'Reason for returning the order'
+  },
+  // Return approval/rejection tracking
+  returnApprovedAt: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    comment: 'Timestamp when return request was approved',
+    field: 'return_approved_at'
+  },
+  returnApprovedBy: {
+    type: DataTypes.ENUM('admin', 'agency'),
+    allowNull: true,
+    comment: 'Who approved the return request',
+    field: 'return_approved_by'
+  },
+  returnApprovedById: {
+    type: DataTypes.UUID,
+    allowNull: true,
+    comment: 'ID of the user who approved the return',
+    field: 'return_approved_by_id'
+  },
+  returnApprovedByName: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    comment: 'Name of the user who approved the return',
+    field: 'return_approved_by_name'
+  },
+  returnRejectedAt: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    comment: 'Timestamp when return request was rejected',
+    field: 'return_rejected_at'
+  },
+  returnRejectedBy: {
+    type: DataTypes.ENUM('admin', 'agency'),
+    allowNull: true,
+    comment: 'Who rejected the return request',
+    field: 'return_rejected_by'
+  },
+  returnRejectedById: {
+    type: DataTypes.UUID,
+    allowNull: true,
+    comment: 'ID of the user who rejected the return',
+    field: 'return_rejected_by_id'
+  },
+  returnRejectedByName: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    comment: 'Name of the user who rejected the return',
+    field: 'return_rejected_by_name'
   },
   // Reorder tracking
   reorderedAt: {

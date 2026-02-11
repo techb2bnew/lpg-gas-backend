@@ -79,8 +79,8 @@ const createOrder = Joi.object({
 
 // Update order status validation
 const updateOrderStatus = Joi.object({
-  status: Joi.string().valid('pending', 'confirmed', 'assigned', 'out_for_delivery', 'delivered', 'cancelled', 'returned').required().messages({
-    'any.only': 'Status must be one of: pending, confirmed, assigned, out_for_delivery, delivered, cancelled, returned',
+  status: Joi.string().valid('pending', 'confirmed', 'assigned', 'out_for_delivery', 'delivered', 'cancelled', 'returned', 'return_approved', 'return_rejected').required().messages({
+    'any.only': 'Status must be one of: pending, confirmed, assigned, out_for_delivery, delivered, cancelled, returned, return_approved, return_rejected',
     'any.required': 'Status is required'
   }),
   adminNotes: Joi.string().max(1000).optional().messages({
