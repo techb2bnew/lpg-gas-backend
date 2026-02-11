@@ -8,6 +8,7 @@ const uploadDeliveryProof = require('../middleware/deliveryProofUpload');
 
 // Customer routes (no authentication required for checkout and payment)
 router.post('/checkout', orderController.createOrderHandler);
+router.post('/create-draft', orderController.createDraftOrderHandler); // Create draft order for online payment (no stock deduction)
 router.post('/payment', orderController.orderpesapalPayment);
 router.get('/payment/status/:orderId', orderController.getPesapalPaymentStatus);
 

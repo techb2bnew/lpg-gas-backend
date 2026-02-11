@@ -575,6 +575,331 @@ const createOrderHandler = async (req, res, next) => {
   }
 };
 
+// Create draft order for online payment (without placing order or deducting stock)
+const createDraftOrderHandler = async (req, res, next) => {
+  try {
+    // Validate request body
+    const { error, value } = createOrder.validate(req.body);
+    if (error) {
+      return next(createError(400, error.details[0].message));
+    }
+
+    // Get tax configuration first
+    const taxConfig = await Tax.findOne({ where: { isActive: true } });
+    const platformChargeConfig = await PlatformCharge.findOne({ where: { isActive: true } });
+
+    let taxPercentage = 0;
+    let fixedTaxAmount = 0;
+    let taxType = 'none';
+    let taxValue = 0;
+    let platformChargeAmount = 0;
+
+    if (taxConfig) {
+      if (taxConfig.percentage !== null && taxConfig.percentage > 0) {
+        taxPercentage = parseFloat(taxConfig.percentage);
+        taxType = 'percentage';
+        taxValue = taxPercentage;
+      } else if (taxConfig.fixedAmount !== null && taxConfig.fixedAmount > 0) {
+        fixedTaxAmount = parseFloat(taxConfig.fixedAmount);
+        taxType = 'fixed';
+        taxValue = fixedTaxAmount;
+      }
+    }
+
+    // Get platform charge
+    if (platformChargeConfig && platformChargeConfig.amount > 0) {
+      platformChargeAmount = parseFloat(platformChargeConfig.amount);
+    }
+
+    // Verify each item's price from database and calculate correct amounts
+    const agencyId = value.agencyId;
+
+    let calculatedSubtotal = 0;
+    const validatedItems = [];
+
+    for (const item of value.items) {
+      // Fetch product from database
+      const product = await Product.findByPk(item.productId);
+      if (!product) {
+        return next(createError(404, `Product with ID ${item.productId} not found`));
+      }
+
+      // Get inventory for this product in the agency
+      const inventory = await AgencyInventory.findOne({
+        where: {
+          productId: item.productId,
+          agencyId: agencyId,
+          isActive: true
+        }
+      });
+
+      if (!inventory) {
+        return next(createError(400, `Product ${product.productName} is not available in the selected agency`));
+      }
+
+      // Find the correct variant price
+      let actualPrice = null;
+      let variantFound = false;
+
+      if (item.variantLabel && inventory.agencyVariants && Array.isArray(inventory.agencyVariants)) {
+        const variant = inventory.agencyVariants.find(v => v.label === item.variantLabel);
+        if (variant) {
+          actualPrice = parseFloat(variant.price);
+          variantFound = true;
+        }
+      }
+
+      if (!variantFound) {
+        return next(createError(400, `Variant ${item.variantLabel} not found for product ${product.productName}`));
+      }
+
+      // Validate that customer sent correct price
+      const customerSentPrice = parseFloat(item.variantPrice);
+      if (Math.abs(customerSentPrice - actualPrice) > 0.01) {
+        return next(createError(400, `Invalid price for ${product.productName} (${item.variantLabel}). Expected: KSH${actualPrice}, Got: KSH${customerSentPrice}`));
+      }
+
+      // Calculate product amount (without tax)
+      const productAmount = actualPrice * item.quantity;
+
+      // Calculate tax for this item
+      let itemTaxAmount = 0;
+      if (taxType === 'percentage') {
+        itemTaxAmount = (productAmount * taxPercentage) / 100;
+      } else if (taxType === 'fixed') {
+        itemTaxAmount = 0; // Will be calculated after loop
+      }
+
+      // Calculate item total (product amount + tax)
+      const itemTotal = productAmount + itemTaxAmount;
+
+      calculatedSubtotal += productAmount;
+
+      // Create validated item with all details
+      validatedItems.push({
+        productId: item.productId,
+        productName: product.productName,
+        variantLabel: item.variantLabel,
+        variantPrice: actualPrice,
+        quantity: item.quantity,
+        productAmount: parseFloat(productAmount.toFixed(2)),
+        taxAmount: parseFloat(itemTaxAmount.toFixed(2)),
+        total: parseFloat(itemTotal.toFixed(2))
+      });
+    }
+
+    // Calculate total tax amount
+    let totalTaxAmount = 0;
+    if (taxType === 'percentage') {
+      totalTaxAmount = (calculatedSubtotal * taxPercentage) / 100;
+    } else if (taxType === 'fixed') {
+      totalTaxAmount = fixedTaxAmount;
+      // Distribute fixed tax proportionally
+      validatedItems.forEach(item => {
+        const proportion = item.productAmount / calculatedSubtotal;
+        const itemTax = fixedTaxAmount * proportion;
+        item.taxAmount = parseFloat(itemTax.toFixed(2));
+        item.total = parseFloat((item.productAmount + item.taxAmount).toFixed(2));
+      });
+    }
+
+    // Apply coupon if provided
+    let couponCode = null;
+    let couponDiscount = 0;
+
+    if (value.couponCode && value.couponCode.trim() !== '') {
+      const coupon = await Coupon.findOne({
+        where: {
+          code: value.couponCode.toUpperCase(),
+          agencyId: agencyId,
+          isActive: true,
+        },
+      });
+
+      if (!coupon) {
+        return next(createError(400, 'Invalid or inactive coupon code'));
+      }
+
+      const now = new Date();
+      const expiryDateTime = new Date(`${coupon.expiryDate} ${coupon.expiryTime}`);
+
+      if (now > expiryDateTime) {
+        await coupon.update({ isActive: false });
+        return next(createError(400, 'Coupon has expired'));
+      }
+
+      if (calculatedSubtotal < coupon.minAmount) {
+        return next(createError(400, `Minimum amount required for this coupon: KSH${coupon.minAmount}`));
+      }
+
+      if (coupon.maxAmount && calculatedSubtotal > coupon.maxAmount) {
+        return next(createError(400, `Maximum amount allowed for this coupon: KSH${coupon.maxAmount}`));
+      }
+
+      if (coupon.discountType === 'percentage') {
+        couponDiscount = (calculatedSubtotal * coupon.discountValue) / 100;
+      } else {
+        couponDiscount = parseFloat(coupon.discountValue);
+      }
+
+      couponCode = coupon.code;
+    }
+
+    // Calculate delivery charge for home_delivery mode
+    let deliveryChargeAmount = 0;
+    let deliveryDistance = null;
+
+    if (value.deliveryMode === 'home_delivery') {
+      try {
+        const customer = await User.findOne({
+          where: { email: value.customerEmail }
+        });
+
+        if (customer && customer.addresses && Array.isArray(customer.addresses) && customer.addresses.length > 0) {
+          const customerAddressObj = customer.addresses[0];
+
+          const deliveryChargeConfig = await DeliveryCharge.findOne({
+            where: {
+              agencyId: agencyId,
+              status: 'active'
+            }
+          });
+
+          if (deliveryChargeConfig) {
+            const Agency = require('../models/Agency');
+            const agency = await Agency.findByPk(agencyId);
+
+            if (agency) {
+              const axios = require('axios');
+              const customerFullAddress = `${customerAddressObj.address}, ${customerAddressObj.city}, ${customerAddressObj.pincode}`;
+              const agencyFullAddress = `${agency.address}, ${agency.city}, ${agency.pincode}`;
+
+              const apiKey = process.env.GOOGLE_MAPS_API_KEY || 'AIzaSyBtb6hSmwJ9_OznDC5e8BcZM90ms4WD_DE';
+
+              const response = await axios.get('https://maps.googleapis.com/maps/api/distancematrix/json', {
+                params: {
+                  origins: agencyFullAddress,
+                  destinations: customerFullAddress,
+                  key: apiKey,
+                  mode: 'driving',
+                  units: 'metric'
+                }
+              });
+
+              if (response.data.status === 'OK' && response.data.rows[0].elements[0].status === 'OK') {
+                const distanceInMeters = response.data.rows[0].elements[0].distance.value;
+                const distanceInKm = distanceInMeters / 1000;
+                deliveryDistance = parseFloat(distanceInKm.toFixed(2));
+
+                const deliveryRadius = parseFloat(deliveryChargeConfig.deliveryRadius);
+
+                if (distanceInKm <= deliveryRadius) {
+                  if (deliveryChargeConfig.chargeType === 'fixed') {
+                    deliveryChargeAmount = Math.floor(parseFloat(deliveryChargeConfig.fixedAmount));
+                  } else if (deliveryChargeConfig.chargeType === 'per_km') {
+                    const ratePerKm = parseFloat(deliveryChargeConfig.ratePerKm);
+                    deliveryChargeAmount = Math.floor(distanceInKm * ratePerKm);
+                  }
+                } else {
+                  return next(createError(400, `Delivery not available. Customer location is ${distanceInKm} km away, but delivery is only available within ${deliveryRadius} km radius.`));
+                }
+              }
+            }
+          }
+        }
+      } catch (err) {
+        logger.error('Error calculating delivery charge:', err);
+      }
+    }
+
+    // Distribute platform charge proportionally across items
+    validatedItems.forEach(item => {
+      item.taxValue = taxValue;
+      const proportion = item.productAmount / calculatedSubtotal;
+      const itemPlatformCharge = platformChargeAmount * proportion;
+      item.platformCharge = parseFloat(itemPlatformCharge.toFixed(2));
+      item.total = parseFloat((item.productAmount + item.taxAmount + item.platformCharge).toFixed(2));
+    });
+
+    // Calculate final total amount
+    const totalAmount = calculatedSubtotal + totalTaxAmount + platformChargeAmount + deliveryChargeAmount - couponDiscount;
+
+    // Generate order number
+    const orderNumber = generateOrderNumber();
+
+    // Verify the agency exists and is active
+    const agency = await Agency.findByPk(agencyId);
+    if (!agency) {
+      return next(createError(404, `Agency with ID ${agencyId} not found`));
+    }
+    if (agency.status !== 'active') {
+      return next(createError(400, `Agency ${agency.name} is not active`));
+    }
+
+    // Verify stock availability (but don't deduct yet - will deduct after payment success)
+    for (const item of validatedItems) {
+      const inventory = await AgencyInventory.findOne({
+        where: {
+          productId: item.productId,
+          agencyId: agencyId,
+          isActive: true
+        }
+      });
+
+      let availableStock = 0;
+      let stockMessage = `variant ${item.variantLabel} of ${item.productName}`;
+
+      if (inventory && inventory.agencyVariants && Array.isArray(inventory.agencyVariants)) {
+        const variant = inventory.agencyVariants.find(v => v.label === item.variantLabel);
+        if (variant) {
+          availableStock = variant.stock || 0;
+        }
+      }
+
+      if (availableStock < item.quantity) {
+        return next(createError(400, `Insufficient stock for ${stockMessage}. Available: ${availableStock}, Requested: ${item.quantity}`));
+      }
+    }
+
+    // Create draft order (status: pending, but stock NOT deducted yet)
+    const order = await Order.create({
+      orderNumber,
+      customerName: value.customerName,
+      customerEmail: value.customerEmail,
+      customerPhone: value.customerPhone,
+      customerAddress: value.customerAddress || null,
+      deliveryMode: value.deliveryMode,
+      items: validatedItems,
+      subtotal: parseFloat(calculatedSubtotal.toFixed(2)),
+      taxType: taxType,
+      taxValue: parseFloat(taxValue.toFixed(2)),
+      taxAmount: parseFloat(totalTaxAmount.toFixed(2)),
+      platformCharge: parseFloat(platformChargeAmount.toFixed(2)),
+      deliveryCharge: parseFloat(deliveryChargeAmount.toFixed(2)),
+      deliveryDistance: deliveryDistance,
+      couponCode: couponCode,
+      couponDiscount: parseFloat(couponDiscount.toFixed(2)),
+      totalAmount: parseFloat(totalAmount.toFixed(2)),
+      paymentMethod: value.paymentMethod,
+      status: 'pending',
+      paymentStatus: 'pending', // Payment pending for draft orders
+      agencyId: agencyId
+    });
+
+    logger.info(`Draft order created: ${order.orderNumber} for agency: ${agencyId} (stock not deducted - waiting for payment)`);
+
+    res.status(201).json({
+      success: true,
+      message: 'Draft order created successfully. Order will be confirmed after payment.',
+      data: {
+        order: formatOrderResponse(order)
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // Get all orders (Role-based filtering)
 const getAllOrders = async (req, res, next) => {
   try {
@@ -3345,6 +3670,118 @@ const pesapalCallbackHandler = async (req, res) => {
       if (order.status === "pending") {
         updateData.status = "confirmed";
         updateData.confirmedAt = new Date();
+        
+        // Deduct stock from agency inventory after payment success
+        // This handles draft orders created via /api/orders/create-draft
+        try {
+          await deductStockFromAgency(order);
+          logger.info(`Stock deducted for Order #${order.orderNumber} after payment success`);
+          
+          // Emit order created notification (since order is now confirmed)
+          const socketService = getSocketService();
+          if (socketService) {
+            socketService.emitOrderCreated({
+              orderId: order.id,
+              orderNumber: order.orderNumber,
+              customerName: order.customerName,
+              customerEmail: order.customerEmail,
+              subtotal: order.subtotal,
+              taxType: order.taxType,
+              taxValue: order.taxValue,
+              taxAmount: order.taxAmount,
+              platformCharge: order.platformCharge,
+              couponCode: order.couponCode,
+              couponDiscount: order.couponDiscount,
+              totalAmount: order.totalAmount,
+              agencyId: order.agencyId,
+              status: 'confirmed'
+            });
+          }
+          
+          // Create notifications for agency owner and admin (order is now confirmed)
+          try {
+            // Notify agency owner
+            const agencyOwner = await AgencyOwner.findOne({ where: { agencyId: order.agencyId } });
+            if (agencyOwner) {
+              const agencyOwnerUser = await User.findOne({ where: { email: agencyOwner.email } });
+              if (agencyOwnerUser) {
+                await Notification.create({
+                  userId: agencyOwnerUser.id,
+                  title: '🆕 New Order Received',
+                  content: `You have received a new order. Please review the order details and accept or reject it.`,
+                  notificationType: 'NEW_ORDER',
+                  data: {
+                    type: 'NEW_ORDER',
+                    orderId: order.id,
+                    orderNumber: order.orderNumber,
+                    total: order.totalAmount
+                  },
+                  orderId: order.id
+                });
+              }
+              
+              if (agencyOwner.fcmToken) {
+                await notificationService.sendNewOrderToAgency(agencyOwner.fcmToken, {
+                  id: order.id,
+                  orderNumber: order.orderNumber,
+                  total: order.totalAmount,
+                  agencyId: order.agencyId
+                }, {
+                  recipientType: 'agency',
+                  recipientId: agencyOwnerUser ? agencyOwnerUser.id : null,
+                  orderId: order.id,
+                  agencyId: order.agencyId,
+                  notificationType: 'NEW_ORDER'
+                });
+              }
+            }
+            
+            // Notify admins
+            const admins = await User.findAll({ where: { role: 'admin' } });
+            const adminTokens = admins.map(admin => admin.fcmToken).filter(token => token);
+            
+            if (adminTokens.length > 0) {
+              await notificationService.sendToMultipleDevices(
+                adminTokens,
+                '🆕 New Order Received',
+                `New order #${order.orderNumber} from ${order.customerName}. Total: ₹${order.totalAmount}`,
+                { 
+                  type: 'NEW_ORDER', 
+                  orderId: order.id, 
+                  orderNumber: order.orderNumber,
+                  total: String(order.totalAmount),
+                  agencyId: String(order.agencyId)
+                }
+              );
+            }
+            
+            const adminNotificationPromises = admins.map(admin =>
+              Notification.create({
+                userId: admin.id,
+                title: '🆕 New Order Received',
+                content: `New order #${order.orderNumber} from ${order.customerName}. Total: ₹${order.totalAmount}`,
+                notificationType: 'NEW_ORDER',
+                data: {
+                  type: 'NEW_ORDER',
+                  orderId: order.id,
+                  orderNumber: order.orderNumber,
+                  total: order.totalAmount,
+                  customerName: order.customerName,
+                  agencyId: order.agencyId
+                },
+                orderId: order.id
+              })
+            );
+            
+            await Promise.all(adminNotificationPromises);
+          } catch (notifError) {
+            logger.error('Error sending order confirmation notifications:', notifError.message);
+          }
+        } catch (stockError) {
+          logger.error(`Error deducting stock for Order #${order.orderNumber}:`, stockError);
+          // Don't fail the payment callback if stock deduction fails
+          // Log error but continue with order confirmation
+        }
       }
 
       logger.info(`Payment successful for Order #${order.orderNumber} - Tracking ID: ${OrderTrackingId}`);
@@ -3709,6 +4146,7 @@ const orderDetailslist = async (req, res, next) => {
 
 module.exports = {
   createOrderHandler,
+  createDraftOrderHandler,
   getAllOrders,
   getOrderById,
   updateOrderStatusHandler,
