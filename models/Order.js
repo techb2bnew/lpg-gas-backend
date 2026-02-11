@@ -233,7 +233,7 @@ const Order = sequelize.define('Order', {
   returnApprovedBy: {
     type: DataTypes.ENUM('admin', 'agency'),
     allowNull: true,
-    comment: 'Who approved the return request',
+    // comment: 'Who approved the return request', // Temporarily removed to avoid Sequelize sync bug
     field: 'return_approved_by'
   },
   returnApprovedById: {
@@ -257,7 +257,7 @@ const Order = sequelize.define('Order', {
   returnRejectedBy: {
     type: DataTypes.ENUM('admin', 'agency'),
     allowNull: true,
-    comment: 'Who rejected the return request',
+    // comment: 'Who rejected the return request', // Temporarily removed to avoid Sequelize sync bug
     field: 'return_rejected_by'
   },
   returnRejectedById: {

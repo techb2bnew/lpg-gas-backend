@@ -4,10 +4,39 @@ const { User, Product, DeliveryAgent, Order, LoginOTP, Notification, Agency, Age
 async function syncDatabase() {
   try {
     console.log('🔄 Starting database synchronization...');
+    console.log('⚠️  Note: Order model will be synced separately to avoid ENUM comment bug');
     
-    // Force sync will drop and recreate tables (use with caution in production)
-    // In development, this is safe
-    await sequelize.sync({ force: true });
+    // Sync all models except Order first
+    const modelsToSync = [
+      User, Product, DeliveryAgent, LoginOTP, Notification, 
+      Agency, AgencyInventory, AgencyOwner, TermsAndConditions, 
+      PrivacyPolicy, Category, Tax, PlatformCharge, Coupon, 
+      DeliveryCharge, Banner
+    ];
+    
+    console.log('📋 Syncing models (except Order)...');
+    for (const Model of modelsToSync) {
+      await Model.sync({ alter: true });
+      console.log(`   ✅ ${Model.tableName || Model.name}`);
+    }
+    
+    // Now sync Order model separately (without comments on ENUM fields)
+    console.log('📋 Syncing Order model...');
+    const Order = require('../models/Order');
+    await Order.sync({ alter: true });
+    console.log('   ✅ orders');
+    
+    // Add comments manually after sync
+    console.log('📋 Adding column comments...');
+    try {
+      await sequelize.query(`
+        COMMENT ON COLUMN "orders"."return_approved_by" IS 'Who approved the return request';
+        COMMENT ON COLUMN "orders"."return_rejected_by" IS 'Who rejected the return request';
+      `);
+      console.log('   ✅ Comments added');
+    } catch (commentError) {
+      console.log('   ⚠️  Some comments may already exist:', commentError.message);
+    }
     
     console.log('✅ Database synchronized successfully!');
     console.log('📋 Tables created:');
