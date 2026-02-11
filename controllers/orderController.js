@@ -1104,10 +1104,8 @@ const updateOrderStatusHandler = async (req, res, next) => {
 
           // Return Approved: send specific notification
           if (value.status === 'return_approved') {
-            const approvedByName = updateData.returnApprovedByName || 'Admin';
-            const approvedBy = updateData.returnApprovedBy === 'admin' ? 'Admin' : 'Agency';
             const title = '✅ Return Request Approved';
-            const body = `Your return request for order #${order.orderNumber} has been approved by ${approvedBy}${approvedByName !== approvedBy ? ` - ${approvedByName}` : ''}.`;
+            const body = `Your return request for order #${order.orderNumber} has been approved.`;
 
             await notificationService.sendToDevice(
               customer.fcmToken,
@@ -1150,10 +1148,8 @@ const updateOrderStatusHandler = async (req, res, next) => {
           }
           // Return Rejected: send specific notification
           else if (value.status === 'return_rejected') {
-            const rejectedByName = updateData.returnRejectedByName || 'Admin';
-            const rejectedBy = updateData.returnRejectedBy === 'admin' ? 'Admin' : 'Agency';
             const title = '❌ Return Request Rejected';
-            const body = `Your return request for order #${order.orderNumber} has been rejected by ${rejectedBy}${rejectedByName !== rejectedBy ? ` - ${rejectedByName}` : ''}.`;
+            const body = `Your return request for order #${order.orderNumber} has been rejected.`;
 
             await notificationService.sendToDevice(
               customer.fcmToken,
